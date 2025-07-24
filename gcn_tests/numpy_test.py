@@ -10,13 +10,12 @@ data = dataset[0]
 class ManualGCNLayer():
     def __init__(self, in_dim, out_dim, adjm):
         self.X = None
-        self.weights = np.random.randn(in_dim, out_dim) * np.sqrt(2.0 / (in_dim + out_dim))  # Xavier init
         self.adjm = adjm  # cache for backward
-
+        self.weights = np.random.randn(in_dim, out_dim) * np.sqrt(2.0 / (in_dim + out_dim))  # Xavier init
+        
     def forward(self, X):
         self.X = X  # cache input
-        self.adjm = adjm  # cache adjacency
-        return np.dot(np.dot(adjm, X), self.weights)
+        return np.dot(np.dot(self.adjm, X), self.weights)
     
     def backward(self, Y_grad, learningRate):
         # dL/dW = (A @ X)^T @ dL/dZ
