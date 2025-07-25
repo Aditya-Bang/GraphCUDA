@@ -18,22 +18,21 @@ def nll_loss(log_probs, labels):
 
 
 class ManualGCNLayer():
-    def __init__(self, in_dim, out_dim, adjm):
+    def __init__(self, in_dim, out_dim):
         self.X = None
-        self.adjm = adjm  # cache for backward
         self.weights = np.random.randn(in_dim, out_dim) * np.sqrt(2.0 / (in_dim + out_dim))  # Xavier init
         
-    def forward(self, X):
+    def forward(self, X, adjm):
         self.X = X  # cache input
-        return np.dot(np.dot(self.adjm, X), self.weights)
+        return np.dot(np.dot(adjm, X), self.weights)
     
-    def backward(self, Y_grad, learningRate):
+    def backward(self, Y_grad, adjm, learningRate):
         # dL/dW = (A @ X)^T @ dL/dZ
-        A_X = np.dot(self.adjm, self.X)
+        A_X = np.dot(adjm, self.X)
         dW = np.dot(A_X.T, Y_grad)
 
         # dL/dX = A @ (dL/dZ @ W.T)
-        dX = np.dot(self.adjm, np.dot(Y_grad, self.weights.T))
+        dX = np.dot(adjm, np.dot(Y_grad, self.weights.T))
 
         # Gradient descent step
         self.weights -= learningRate * dW
@@ -105,35 +104,32 @@ class ManualGCN():
             input_dim,
             hidden_dim,
             output_dim,
-            edge_index,
-            num_nodes,
             learning_rate=0.1,
             dropout_p=0.4
         ):
         # important vars
-        self.adjm = self._normalize_adj(edge_index, num_nodes)
         self.learning_rate = learning_rate
 
         # Layers
-        self.gcn1 = ManualGCNLayer(input_dim, hidden_dim, self.adjm)
+        self.gcn1 = ManualGCNLayer(input_dim, hidden_dim)
         self.relu = ManualReluLayer()
         self.dropout = ManualDropLayer(p=dropout_p)
-        self.gcn2 = ManualGCNLayer(hidden_dim, output_dim, self.adjm)
+        self.gcn2 = ManualGCNLayer(hidden_dim, output_dim)
         self.log_softmax = ManualLogSoftmaxLayer()
 
-    def forward(self, X, training=True):
-        h = self.gcn1.forward(X)
+    def forward(self, X, adjm, training=True):
+        h = self.gcn1.forward(X, adjm)
         h = self.relu.forward(h)
         h = self.dropout.forward(h, training=training)
-        h = self.gcn2.forward(h)
+        h = self.gcn2.forward(h, adjm)
         return self.log_softmax.forward(h)
 
-    def backward(self, y, train_mask=None):
+    def backward(self, y, adjm, train_mask=None):
         grad_logits = self.log_softmax.backward(y, train_mask)
-        grad_hidden = self.gcn2.backward(grad_logits, self.learning_rate)
+        grad_hidden = self.gcn2.backward(grad_logits, adjm, self.learning_rate)
         grad_hidden = self.dropout.backward(grad_hidden)
         grad_hidden = self.relu.backward(grad_hidden)
-        _ = self.gcn1.backward(grad_hidden, self.learning_rate)
+        _ = self.gcn1.backward(grad_hidden, adjm, self.learning_rate)
 
     @staticmethod
     def _normalize_adj(edge_index, num_nodes):
@@ -161,20 +157,20 @@ model = ManualGCN(
     dataset.num_node_features,
     16,
     dataset.num_classes,
-    dataset.edge_index,
-    data.num_nodes,
     learning_rate=1,
     dropout_p=0
 )
+
+adjm = model._normalize_adj(dataset.edge_index, data.num_nodes)
 
 # train one epoch on data, no optimizer now
 def train():
     X = data.x.numpy()
     y = np.eye(dataset.num_classes)[data.y.numpy()] # one-hot encoded
 
-    out = model.forward(X, training=True)
+    out = model.forward(X=X, adjm=adjm, training=True)
     loss = nll_loss(out[data.train_mask], y[data.train_mask])
-    model.backward(y=y, train_mask=data.train_mask.numpy())
+    model.backward(y=y, adjm=adjm, train_mask=data.train_mask.numpy())
     
     return loss
 
@@ -184,7 +180,7 @@ def accuracy(preds, labels):
 def test():
     X = data.x.numpy()
     y = data.y.numpy()
-    out = model.forward(X, training=False)
+    out = model.forward(X=X, adjm=adjm, training=False)
     pred = np.argmax(out, axis=1)
     return (
         accuracy(pred[data.train_mask], y[data.train_mask]),
