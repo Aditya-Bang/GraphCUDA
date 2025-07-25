@@ -86,12 +86,15 @@ class ManualLogSoftmaxLayer():
         train_mask: boolean array of shape (N,), True for training nodes
         Returns: gradient of loss w.r.t. log-softmax input (shape: [N, C])
         """
-        N, C = self.out.shape
-        grad = (np.exp(self.out) - y) / N  # log-softmax + NLL derivative
+        grad = np.exp(self.out) - y  # shape: (N, C)
 
         if train_mask is not None:
-            train_mask = train_mask[:, np.newaxis]  # shape (N, 1) for broadcasting
-            grad = grad * train_mask  # zero out gradients for non-training samples
+            train_mask = train_mask[:, np.newaxis]  # shape: (N, 1) for broadcasting
+            N_train = np.sum(train_mask)
+            grad = (grad * train_mask) / N_train  # only average over training samples
+        else:
+            N = y.shape[0]
+            grad = grad / N  # fallback to averaging over all nodes
 
         return grad
 
@@ -160,7 +163,7 @@ model = ManualGCN(
     dataset.num_classes,
     dataset.edge_index,
     data.num_nodes,
-    learning_rate=10,
+    learning_rate=1,
     dropout_p=0
 )
 
@@ -190,7 +193,7 @@ def test():
     )
 
 # Training loop
-for epoch in range(1, 101):
+for epoch in range(1, 21):
     loss = train()
     train_acc, val_acc, test_acc = test()
     if epoch % 1 == 0:

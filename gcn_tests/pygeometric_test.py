@@ -32,7 +32,8 @@ data = data.to(device)
 print(data)
 print(data.x)
 print(data.edge_index)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+# optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+optimizer = torch.optim.SGD(model.parameters(), lr=1)
 
 # Training function
 def train():
