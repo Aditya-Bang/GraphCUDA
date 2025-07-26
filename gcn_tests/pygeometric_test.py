@@ -29,9 +29,11 @@ class GCN(nn.Module):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = GCN(dataset.num_node_features, 16, dataset.num_classes).to(device)
 data = data.to(device)
-print(data)
-print(data.x)
-print(data.edge_index)
+
+print(f"Model is on device: {next(model.parameters()).device}")
+print(f"Data.x is on device: {data.x.device}")
+print(f"Data.edge_index is on device: {data.edge_index.device}")
+
 # optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
 optimizer = torch.optim.SGD(model.parameters(), lr=1)
 
