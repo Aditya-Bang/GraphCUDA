@@ -6,7 +6,7 @@ from torch_geometric.datasets import Planetoid
 
 
 # Load dataset
-dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../data')), name='Cora')
+dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
 data = dataset[0]
 
 class ManualGCNLayer(nn.Module):
@@ -60,6 +60,11 @@ class ManualGCN(nn.Module):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = ManualGCN(dataset.num_node_features, 16, dataset.num_classes, data.edge_index, data.num_nodes).to(device)
 data = data.to(device)
+
+print(f"Model is on device: {next(model.parameters()).device}")
+print(f"Data.x is on device: {data.x.device}")
+print(f"Data.edge_index is on device: {data.edge_index.device}")
+
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
 
 # Training and testing
