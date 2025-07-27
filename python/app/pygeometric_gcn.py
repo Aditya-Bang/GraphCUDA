@@ -1,4 +1,5 @@
 import os
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -62,9 +63,44 @@ def test():
 train_acc, val_acc, test_acc = test()
 print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
 
-# Training loop
-for epoch in range(1, 21):
+epochs = 20
+
+torch.cuda.synchronize() if torch.cuda.is_available() else None
+start_time = time.time()
+
+for epoch in range(1, epochs + 1):
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    epoch_start = time.time()
+
     loss = train()
     train_acc, val_acc, test_acc = test()
-    if epoch % 1 == 0:
-        print(f"Epoch {epoch:03d} | Loss: {loss:.4f} | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    epoch_time = time.time() - epoch_start
+
+    # if epoch % 1 == 0:
+        # print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+
+
+# Final sync before total time
+torch.cuda.synchronize() if torch.cuda.is_available() else None
+total_time = time.time() - start_time
+
+print(f"\nTotal training + testing time for {epochs} epochs: {total_time:.4f} seconds")
+print(f"Average time per epoch (train + test): {total_time / epochs:.6f} seconds")
+
+
+import timeit
+
+# Define a wrapper function for just training once
+def single_train():
+    model.train()
+    optimizer.zero_grad()
+    out = model(data)
+    loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+    loss.backward()
+    optimizer.step()
+
+# Measure time for 100 runs
+time = timeit.timeit(single_train, number=100)
+print(f"Average train() time: {time / 100:.6f} seconds")
