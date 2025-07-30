@@ -7,4 +7,5 @@ Todos:
 3. figure out how to expose classes in pybind11 + testing
 4. cudaextension setup.py
 5. actually make optimized gcn + relu (figure out architecture, maybe only gcn layer classes and training loop in python/how to merge with pytorch)
+6. proper documentation check all readmes
 
