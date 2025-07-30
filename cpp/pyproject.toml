@@ -1,0 +1,20 @@
+[build-system]
+requires = [
+    "setuptools>=80.9.0",
+    "pybind11>=3.0.0",
+    "torch==2.4.1",
+    "numpy>=2.3.2",
+]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "graphcuda"
+version = "0.1.0"
+description = "Optimized library for graph neural networks."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.3.2",
+    "torch==2.4.1",
+]
