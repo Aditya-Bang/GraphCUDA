@@ -6,6 +6,7 @@ dist/
 wheels/
 *.egg-info
 *.so
+*.pyd
 
 # uv generated files
 uv.lock
