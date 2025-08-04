@@ -18,6 +18,10 @@ struct GCNConvImpl : torch::nn::Module {
         // Step 2: Matrix multiplication (support * weight)
         torch::Tensor output = torch::matmul(support, weight);
 
+        if (apply_relu) {
+            output = torch::relu(output);
+        }
+
         return output;
     }
 
@@ -37,11 +41,10 @@ struct GCNImpl : torch::nn::Module {
 
     torch::Tensor forward(const torch::Tensor& x, const torch::Tensor& adj) {
         // Pass through the first convolutional layer and apply ReLU
-        torch::Tensor x_out = conv1->forward(x, adj);
-        x_out = torch::relu(x_out);
+        torch::Tensor x_out = conv1->forward(x, adj, true);
 
         // Pass through the second convolutional layer
-        x_out = conv2->forward(x_out, adj);
+        x_out = conv2->forward(x_out, adj, false);
         
         // Apply log_softmax on the output
         return torch::log_softmax(x_out, /*dim=*/1);
@@ -51,10 +54,15 @@ struct GCNImpl : torch::nn::Module {
 };
 TORCH_MODULE(GCN);
 
+torch::Tensor add_forward(torch::Tensor a, torch::Tensor b) {
+    return a + b;
+}
 
 // PYBIND11_MODULE to expose the C++ modules to Python
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "GNN library implemented in C++ and exposed to Python.";
+
+    m.def("add_forward", &add_forward);
 
     // Expose the GCNConv layer
     py::class_<GCNConvImpl, std::shared_ptr<GCNConvImpl>>(m, "GCNConv")

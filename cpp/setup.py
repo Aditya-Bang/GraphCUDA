@@ -7,7 +7,7 @@ setup(name='graphcuda',
       package_dir={'': 'src'},
       ext_modules=[cpp_extension.CppExtension(
           name='graphcuda._graphcuda',
-          sources=['src/main.cpp']
+          sources=['src/graphcuda/cuda/gcn.cpp']
       )],
       cmdclass={'build_ext': cpp_extension.BuildExtension},
       zip_safe=False,

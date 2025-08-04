@@ -10,7 +10,7 @@ from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from graphcuda import GCN
 
 # Load Cora dataset
-dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
+dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
 data = dataset[0]
 
 # --- Pre-processing for the C++ GCNConv ---
@@ -22,6 +22,7 @@ adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
 
 # Move data to GPU
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Running on device: {device}")
 data = data.to(device)
 adj = adj.to(device)
 
@@ -29,7 +30,7 @@ adj = adj.to(device)
 in_features = dataset.num_node_features
 hidden_features = 16
 out_features = dataset.num_classes
-model = GCN(in_features, hidden_features, out_features)
+model = GCN(in_features, hidden_features, out_features).to(device)
 
 # Define optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
@@ -44,7 +45,7 @@ for epoch in range(20):
     loss.backward()
     optimizer.step()
 
-    if epoch % 10 == 0:
+    if epoch % 1 == 0:
         print(f'Epoch {epoch:03d}, Loss: {loss:.4f}')
 
 # Evaluation
