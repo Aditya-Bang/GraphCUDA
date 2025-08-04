@@ -35,10 +35,10 @@ make this work for gcn classes maybe?
 
 Linux:
 ```bash
-python -m venv .venv
+uv venv
 source .venv/bin/activate
-pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
-pip install .
+uv pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
+uv pip install .
 ```
 
 Windows cmd (requires cl so for example use x64 Native Command prompt for VS 2022):
