@@ -45,7 +45,9 @@ Windows cmd (requires cl so for example use x64 Native Command prompt for VS 202
 ```bash
 uv venv
 .venv\Scripts\activate
-set DISTUTILS_USE_SDK=1
+set DISTUTILS_USE_SDK=1 # if using x64 Native Tools Command Prompt for VS 2022
+set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4 # if using cuda 12.4
 uv pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
+# install all dependancies before this manual or use requirements.txt, then use uv pip install --no-build-isolation .
 uv pip install .
 ```
