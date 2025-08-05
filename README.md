@@ -8,6 +8,8 @@ Todos:
 4. look at gnn advisor
 5. create wavelet gnn
 6. run tests against pytorch-native implementation (not pygeometric), both sparse and non sparse mm
+7. look at message passing class in pygeometric, and some other gnn's implemented in same folder
+8. look for more gnns to optimize and implement
 
 
 1. check if dlls work on windows for cuda (dependancy inspector + check torch/lib) (setuptools imports need torch+cu12.4?)
