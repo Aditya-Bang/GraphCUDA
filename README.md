@@ -2,6 +2,8 @@
 
 Todos:
 
+1. custom adjm sparse cuda memory implementation with custom class
+
 1. get initial cuda kernel up and running
 2. move cpp code to /, and move all other code to old/ folder, or better name
 3. look at maxk gnn fast cuda implementation
