@@ -10,7 +10,14 @@ except ImportError:
     print("Torch not found. Please ensure it's installed in your environment.")
     sys.exit(1)
 
+try:
+    from . import _graphcuda as cpp_ext
+except ImportError as e:
+    raise ImportError(
+        "Could not import the native C++ extension '_graphcuda'. Original error: " + str(e)
+    ) from e
 
 from .python.gcn import GCN
+matmul = cpp_ext.matmul
 
-__all__ = ["GCN"]
+__all__ = ["GCN", "matmul"]

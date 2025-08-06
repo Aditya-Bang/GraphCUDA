@@ -7,7 +7,11 @@ setup(name='graphcuda',
     package_dir={'': 'src'},
     ext_modules=[CUDAExtension(
         name='graphcuda._graphcuda',
-        sources=['src/graphcuda/cuda/gcn.cu'],
+        sources=[
+            'src/graphcuda/cuda/matmul.cu',
+            'src/graphcuda/cuda/gcn.cu',
+            'src/graphcuda/cuda/pybind.cu',
+        ],
         extra_compile_args={
             'cxx': [],
             'nvcc': [
