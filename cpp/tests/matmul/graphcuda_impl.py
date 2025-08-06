@@ -27,19 +27,52 @@ X = data.x  # Node features
 N, D_in, D_out = 2048, 1024, 512  # rows, cols of A and B
 
 
-indices = torch.randint(0, N, (1, N//100), device=device).repeat(2, 1)
-values = torch.randn(indices.size(1), device=device)
-A_sparse = torch.sparse_coo_tensor(indices, values, (N, D_in), device=device)
-A = A_sparse.to_dense()
+# indices = torch.randint(0, N, (1, N//100), device=device).repeat(2, 1)
+# values = torch.randn(indices.size(1), device=device)
+# A_sparse = torch.sparse_coo_tensor(indices, values, (N, D_in), device=device)
+# A = A_sparse.to_dense()
 # A = torch.randn(N, D_in, device=device)
-B = torch.randn(D_in, D_out, device=device)
+# B = torch.randn(D_in, D_out, device=device)
+A = adj
+B = data.x
+A_sparse = torch.sparse_coo_tensor(
+    edge_index,
+    edge_weight,
+    (data.num_nodes, data.num_nodes),
+    device=device
+).coalesce()
 
+# # Dimensions
+# print(f"A (adjacency) shape: {A.shape}")
+# print(f"B (features) shape: {B.shape}")
+
+# # Sparsity
+# if A.is_sparse:
+#     num_elements = A.shape[0] * A.shape[1]
+#     num_nonzero = A._nnz()  # Number of non-zero elements
+#     sparsity = 1.0 - (num_nonzero / num_elements)
+#     print(f"A sparsity: {sparsity:.4f} ({num_nonzero} / {num_elements} non-zero)")
+# else:
+#     num_elements = A.numel()
+#     num_nonzero = (A != 0).sum().item()
+#     sparsity = 1.0 - (num_nonzero / num_elements)
+#     print(f"A sparsity: {sparsity:.4f} ({num_nonzero} / {num_elements} non-zero)")
+
+# # B is dense
+# num_elements_b = B.numel()
+# num_nonzero_b = (B != 0).sum().item()
+# sparsity_b = 1.0 - (num_nonzero_b / num_elements_b)
+# print(f"B sparsity: {sparsity_b:.4f} ({num_nonzero_b} / {num_elements_b} non-zero)")
+
+# print(f"edge_index shape: {edge_index.shape}")
+# print(f"Number of edges: {edge_index.shape[1]}")
 
 #### EXTREMELY IMPORTANT, WARMUP effects timings a lot for manual matmul, torch.matmul already warmed up for some reason?
 # Warmup
 for _ in range(10):
     _ = torch.matmul(A, B)
     _ = matmul(A, B)
+    _ = torch.sparse.mm(A_sparse, B)
 
 
 # Time GraphCUDA (your C++ wrapper)
@@ -60,6 +93,15 @@ end.record()
 torch.cuda.synchronize()
 pytorch_time = start.elapsed_time(end)
 
+# Time PyTorch sparse
+start.record()
+C_sparse = torch.sparse.mm(A_sparse, B)
+end.record()
+torch.cuda.synchronize()
+sparse_time = start.elapsed_time(end)
+
 print(f"GraphCUDA matmul: {graphcuda_time:.6f} ms")
 print(f"PyTorch matmul:   {pytorch_time:.6f} ms")
+print(f"PyTorch sparse.mm:     {sparse_time:.6f} ms")
 print(f"Close results? {torch.allclose(C1, C2, atol=1e-4)}")
+print(f"Sparse vs Dense: {torch.allclose(C_sparse, C2, atol=1e-4)}")
