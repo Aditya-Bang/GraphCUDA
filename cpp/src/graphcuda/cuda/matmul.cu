@@ -14,39 +14,54 @@ __global__ void matmul_kernel(float* A, float* B, float* C, int M, int N, int K)
     }
 }
 
-#define TILE_SIZE 32
+#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
 
-// Tiled matrix multiplication kernel using shared memory
-__global__ void matmul_kernel_optimized(float* A, float* B, float* C, int M, int N, int K) {
-    __shared__ float tile_A[TILE_SIZE][TILE_SIZE];
-    __shared__ float tile_B[TILE_SIZE][TILE_SIZE];
+template <const int BLOCKSIZE>
+__global__ void sgemm_shared_mem_block(int M, int N, int K, float alpha,
+                                       const float *A, const float *B,
+                                       float beta, float *C) {
+  // the output block that we want to compute in this threadblock
+  const uint cRow = blockIdx.x;
+  const uint cCol = blockIdx.y;
 
-    int row = blockIdx.y * TILE_SIZE + threadIdx.y;
-    int col = blockIdx.x * TILE_SIZE + threadIdx.x;
+  // allocate buffer for current block in fast shared mem
+  // shared mem is shared between all threads in a block
+  __shared__ float As[BLOCKSIZE * BLOCKSIZE];
+  __shared__ float Bs[BLOCKSIZE * BLOCKSIZE];
 
-    float sum = 0.0f;
+  // the inner row & col that we're accessing in this thread
+  const uint threadCol = threadIdx.x % BLOCKSIZE;
+  const uint threadRow = threadIdx.x / BLOCKSIZE;
 
-    for (int tile_idx = 0; tile_idx < (K + TILE_SIZE - 1) / TILE_SIZE; ++tile_idx) {
-        if (row < M && tile_idx * TILE_SIZE + threadIdx.x < K)
-            tile_A[threadIdx.y][threadIdx.x] = A[row * K + tile_idx * TILE_SIZE + threadIdx.x];
-        else
-            tile_A[threadIdx.y][threadIdx.x] = 0.0f;
+  // advance pointers to the starting positions
+  A += cRow * BLOCKSIZE * K;                    // row=cRow, col=0
+  B += cCol * BLOCKSIZE;                        // row=0, col=cCol
+  C += cRow * BLOCKSIZE * N + cCol * BLOCKSIZE; // row=cRow, col=cCol
 
-        if (col < N && tile_idx * TILE_SIZE + threadIdx.y < K)
-            tile_B[threadIdx.y][threadIdx.x] = B[(tile_idx * TILE_SIZE + threadIdx.y) * N + col];
-        else
-            tile_B[threadIdx.y][threadIdx.x] = 0.0f;
+  float tmp = 0.0;
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE) {
+    // Have each thread load one of the elements in A & B
+    // Make the threadCol (=threadIdx.x) the consecutive index
+    // to allow global memory access coalescing
+    As[threadRow * BLOCKSIZE + threadCol] = A[threadRow * K + threadCol];
+    Bs[threadRow * BLOCKSIZE + threadCol] = B[threadRow * N + threadCol];
 
-        __syncthreads();
+    // block threads in this block until cache is fully populated
+    __syncthreads();
+    A += BLOCKSIZE;
+    B += BLOCKSIZE * N;
 
-        for (int i = 0; i < TILE_SIZE; ++i)
-            sum += tile_A[threadIdx.y][i] * tile_B[i][threadIdx.x];
-
-        __syncthreads();
+    // execute the dotproduct on the currently cached block
+    for (int dotIdx = 0; dotIdx < BLOCKSIZE; ++dotIdx) {
+      tmp += As[threadRow * BLOCKSIZE + dotIdx] *
+             Bs[dotIdx * BLOCKSIZE + threadCol];
     }
-
-    if (row < M && col < N)
-        C[row * N + col] = sum;
+    // need to sync again at the end, to avoid faster threads
+    // fetching the next block into the cache before slower threads are done
+    __syncthreads();
+  }
+  C[threadRow * N + threadCol] =
+      alpha * tmp + beta * C[threadRow * N + threadCol];
 }
 
 // PyTorch wrapper
@@ -67,11 +82,21 @@ torch::Tensor matmul(torch::Tensor A, torch::Tensor B) {
     float* B_ptr = B.data_ptr<float>();
     float* C_ptr = C.data_ptr<float>();
 
-    dim3 threads(16, 16);
-    dim3 blocks((N + threads.x - 1) / threads.x, (M + threads.y - 1) / threads.y);
-
+    // KERNEL 1 - Global Memory Coalescing
+    // dim3 threads(32, 32);
+    // dim3 blocks((N + threads.x - 1) / threads.x, (M + threads.y - 1) / threads.y);
     // matmul_kernel<<<blocks, threads>>>(A_ptr, B_ptr, C_ptr, M, N, K);
-    matmul_kernel_optimized<<<blocks, threads>>>(A_ptr, B_ptr, C_ptr, M, N, K);
+
+    // Shared Memory Cache-Blocking
+    dim3 gridDim(CEIL_DIV(M, 32), CEIL_DIV(N, 32));
+    dim3 blockDim(32 * 32);
+    cudaFuncSetAttribute(sgemm_shared_mem_block<32>,
+                       cudaFuncAttributePreferredSharedMemoryCarveout,
+                       cudaSharedmemCarveoutMaxShared);
+    sgemm_shared_mem_block<32><<<gridDim, blockDim>>>(M, N, K, 1, A_ptr, B_ptr, 0, C_ptr);
+
+
+
     // cudaDeviceSynchronize();  // Optional: helpful for debugging
 
     return C;
