@@ -6,7 +6,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.utils import to_dense_adj, add_self_loops
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
-from graphcuda import matmul
+from graphcuda import matmul2
 
 dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
 data = dataset[0]
@@ -71,7 +71,7 @@ A_sparse = torch.sparse_coo_tensor(
 # Warmup
 for _ in range(10):
     _ = torch.matmul(A, B)
-    _ = matmul(A, B)
+    _ = matmul2(A, B)
     _ = torch.sparse.mm(A_sparse, B)
 
 
@@ -79,7 +79,7 @@ for _ in range(10):
 start = torch.cuda.Event(enable_timing=True)
 end = torch.cuda.Event(enable_timing=True)
 start.record()
-C1 = matmul(A, B)
+C1 = matmul2(A, B)
 end.record()
 torch.cuda.synchronize()
 graphcuda_time = start.elapsed_time(end)

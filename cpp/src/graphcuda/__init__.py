@@ -18,6 +18,7 @@ except ImportError as e:
     ) from e
 
 from .python.gcn import GCN
-matmul = cpp_ext.matmul
+matmul1 = cpp_ext.matmul1
+matmul2 = cpp_ext.matmul2
 
-__all__ = ["GCN", "matmul"]
+__all__ = ["GCN", "matmul1", "matmul2"]

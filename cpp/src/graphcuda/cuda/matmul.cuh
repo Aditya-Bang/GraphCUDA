@@ -3,14 +3,10 @@
 #include <torch/extension.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-// #include <cmath>
-// #include <algorithm>
-// #include <cstdio>
-// #include <cstdlib>
-// #include <cublas_v2.h>
+#include <cstdint>
+#include <iostream>
 
+#define CEIL_DIV(M, N) (((M) + (N)-1) / (N))
 
-typedef unsigned int uint;
-
-// Host wrapper function to call CUDA kernel or fallback to torch::matmul
-torch::Tensor matmul(torch::Tensor A, torch::Tensor B);
+torch::Tensor matmul1(torch::Tensor A, torch::Tensor B);
+torch::Tensor matmul2(torch::Tensor A, torch::Tensor B);

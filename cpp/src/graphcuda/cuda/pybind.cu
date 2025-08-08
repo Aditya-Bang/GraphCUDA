@@ -8,5 +8,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("gcn_conv_backward", &gcn_conv_backward, "GCN Convolution Backward Pass");
 
     // Expose Matmul wrapper function
-    m.def("matmul", &matmul, "Matrix Multiplication");
+    m.def("matmul1", &matmul1, "Matrix Multiplication - Global Memory Coalescing");
+    m.def("matmul2", &matmul2, "Matrix Multiplication - Shared Memory Cache-Blocking");
 }
