@@ -1,6 +1,10 @@
 #include "matmul.cuh"
 
 
+__device__ inline bool is_aligned_16(const void* p) {
+    return (reinterpret_cast<uintptr_t>(p) & 0xF) == 0;
+}
+
 template <int BM, int BN, int BK, int TM, int TN>
 __global__ void sgemmVectorize(int M, int N, int K, float alpha,
                                const float* __restrict__ A,
@@ -72,9 +76,16 @@ __global__ void sgemmVectorize(int M, int N, int K, float alpha,
       // load float4 from A if in-bounds, else pack scalars
       float4 avals;
       if (global_r < M) {
-        if (global_c + 3 < K) {
+        if (global_c + 3 < K && is_aligned_16(&A[global_r * K + global_c])) {
           // safe to do vector load
           avals = reinterpret_cast<const float4*>(&A[global_r * K + global_c])[0];
+        }
+        else if (global_c + 3 < K) {
+          // pointer not 16-byte aligned: do scalar loads to avoid fault
+          avals.x = A[global_r * K + global_c + 0];
+          avals.y = A[global_r * K + global_c + 1];
+          avals.z = A[global_r * K + global_c + 2];
+          avals.w = A[global_r * K + global_c + 3];
         } else {
           // partial tail: load scalar-wise
           avals.x = (global_c + 0 < K) ? A[global_r * K + global_c + 0] : 0.0f;
@@ -109,8 +120,13 @@ __global__ void sgemmVectorize(int M, int N, int K, float alpha,
       const int global_c = B_block_col + (int)b_c_start;
       float4 bvals;
       if (global_r < K) {
-        if (global_c + 3 < N) {
+        if (global_c + 3 < N && is_aligned_16(&B[global_r * N + global_c])) {
           bvals = reinterpret_cast<const float4*>(&B[global_r * N + global_c])[0];
+        } else if (global_c + 3 < N) {
+          bvals.x = B[global_r * N + global_c + 0];
+          bvals.y = B[global_r * N + global_c + 1];
+          bvals.z = B[global_r * N + global_c + 2];
+          bvals.w = B[global_r * N + global_c + 3];
         } else {
           bvals.x = (global_c + 0 < N) ? B[global_r * N + global_c + 0] : 0.0f;
           bvals.y = (global_c + 1 < N) ? B[global_r * N + global_c + 1] : 0.0f;
@@ -159,7 +175,8 @@ __global__ void sgemmVectorize(int M, int N, int K, float alpha,
     float* crow = &C[globalRow * N + C_block_col + colBaseInBlock];
     for (int tn = 0; tn < TN; tn += 4) {
       const int globalCol = C_block_col + colBaseInBlock + tn;
-      if (globalCol + 3 < N && ((globalCol & 3) == 0)) {
+      uintptr_t addr = reinterpret_cast<uintptr_t>(&crow[tn]);
+      if (globalCol + 3 < N && ((globalCol & 3) == 0) && (addr % 16 == 0)) {
         // safe to do vectorized read-modify-write
         float4 old = reinterpret_cast<float4*>(&crow[tn])[0];
         float4 neu;
