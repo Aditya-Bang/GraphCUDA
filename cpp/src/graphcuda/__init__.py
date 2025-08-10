@@ -21,5 +21,6 @@ from .python.gcn import GCN
 matmul1 = cpp_ext.matmul1
 matmul2 = cpp_ext.matmul2
 matmul3 = cpp_ext.matmul3
+matmul4 = cpp_ext.matmul4
 
-__all__ = ["GCN", "matmul1", "matmul2", "matmul3"]
+__all__ = ["GCN", "matmul1", "matmul2", "matmul3", "matmul4"]

@@ -16,3 +16,4 @@
 torch::Tensor matmul1(torch::Tensor A, torch::Tensor B);
 torch::Tensor matmul2(torch::Tensor A, torch::Tensor B);
 torch::Tensor matmul3(torch::Tensor A, torch::Tensor B);
+torch::Tensor matmul4(torch::Tensor A, torch::Tensor B);

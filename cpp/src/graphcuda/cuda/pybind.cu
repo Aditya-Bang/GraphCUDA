@@ -11,4 +11,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("matmul1", &matmul1, "Matrix Multiplication - Global Memory Coalescing");
     m.def("matmul2", &matmul2, "Matrix Multiplication - Shared Memory Cache-Blocking");
     m.def("matmul3", &matmul3, "Matrix Multiplication - 2D Block Tiling and Vectorized Memory Access");
+    m.def("matmul4", &matmul4, "Matrix Multiplication - Warptiling");
 }
