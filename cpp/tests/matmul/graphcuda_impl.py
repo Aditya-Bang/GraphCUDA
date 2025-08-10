@@ -31,7 +31,6 @@ N, D_in, D_out = 2048, 1024, 512  # rows, cols of A and B
 # values = torch.randn(indices.size(1), device=device)
 # A_sparse = torch.sparse_coo_tensor(indices, values, (N, D_in), device=device)
 # A = A_sparse.to_dense()
-# A = torch.randn(N, D_in, device=device)
 # B = torch.randn(D_in, D_out, device=device)
 A = adj
 B = data.x
@@ -42,9 +41,9 @@ A_sparse = torch.sparse_coo_tensor(
     device=device
 ).coalesce()
 
-# # Dimensions
-# print(f"A (adjacency) shape: {A.shape}")
-# print(f"B (features) shape: {B.shape}")
+# Dimensions
+print(f"A (adjacency) shape: {A.shape}")
+print(f"B (features) shape: {B.shape}")
 
 # # Sparsity
 # if A.is_sparse:
