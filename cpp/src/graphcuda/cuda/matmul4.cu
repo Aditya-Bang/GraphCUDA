@@ -197,8 +197,7 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
         for (unsigned int tn = 0; tn < TN; tn += 4) {
           int globalCol = blockCol * BN + warpCol * WN + subWarpTileCol * WSUBN + threadColInWarpSubtile * TN + tn;
           if (globalCol >= N) continue;
-          float4 oldv;
-          safe_load4(crow, N, tn, N, N); // load existing C values
+          float4 oldv = safe_load4(crow, N, tn, N, N); // load existing C values
           float4 newv;
           newv.x = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 0)] + beta * oldv.x;
           newv.y = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 1)] + beta * oldv.y;
