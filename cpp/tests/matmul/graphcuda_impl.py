@@ -24,7 +24,7 @@ X = data.x  # Node features
 
 
 # Instead of using Cora features
-N, D_in, D_out = 2048, 2048, 2048  # rows, cols of A and B
+N, D_in, D_out = 100, 100, 100  # rows, cols of A and B
 
 
 indices = torch.randint(0, N, (1, N//100), device=device).repeat(2, 1)
@@ -99,8 +99,25 @@ end.record()
 torch.cuda.synchronize()
 sparse_time = start.elapsed_time(end)
 
+def compare_tensors(a, b, atol=1e-4, rtol=1e-5):
+    diff = (a - b).abs()
+    print(f"Allclose? {torch.allclose(a, b, atol=atol, rtol=rtol)}")
+    print(f"Max abs diff: {diff.max().item()}")
+    print(f"Mean abs diff: {diff.mean().item()}")
+    rel_diff = diff / (b.abs() + 1e-8)
+    print(f"Max rel diff: {rel_diff.max().item()}")
+    if not torch.allclose(a, b, atol=atol, rtol=rtol):
+        mask = ~torch.isclose(a, b, atol=atol, rtol=rtol)
+        print("First few mismatches:")
+        idx = mask.nonzero(as_tuple=False)
+        for i in range(min(20, idx.size(0))):
+            r, c = idx[i]
+            print(f"[{r}, {c}]: {a[r,c].item()} vs {b[r,c].item()} (diff={diff[r,c].item()})")
+
 print(f"GraphCUDA matmul: {graphcuda_time:.6f} ms")
 print(f"PyTorch matmul:   {pytorch_time:.6f} ms")
 print(f"PyTorch sparse.mm:     {sparse_time:.6f} ms")
 print(f"Close results? {torch.allclose(C1, C2, atol=1e-4)}")
 print(f"Sparse vs Dense: {torch.allclose(C_sparse, C2, atol=1e-4)}")
+
+compare_tensors(C1, C2)

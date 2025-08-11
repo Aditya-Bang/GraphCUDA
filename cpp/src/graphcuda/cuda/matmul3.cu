@@ -16,17 +16,19 @@ __global__ void sgemmVectorize(int M, int N, int K, float alpha,
   static_assert((TN % 4) == 0, "TN must be multiple of 4 for float4 stores");
 
   // block tile coordinates
-  const unsigned int cRow = blockIdx.y;
-  const unsigned int cCol = blockIdx.x;
+  const unsigned int cRow = blockIdx.y; // 0 .. ceil(M/BM)
+  const unsigned int cCol = blockIdx.x; // 0 .. ceil(N/BN)
 
   // thread tile coordinates inside the block
   const unsigned int threadTileCol = threadIdx.x; // 0 .. BN/TN - 1
   const unsigned int threadTileRow = threadIdx.y; // 0 .. BM/TM - 1
 
   const unsigned int threadsPerBlock = blockDim.x * blockDim.y;
-  const unsigned int linearTid = threadTileRow * blockDim.x + threadTileCol;
+  const unsigned int linearTid = threadTileRow * blockDim.x + threadTileCol; // row major thread id in block, 0 .. threadsPerBlock-1
 
   // local offsets in the BMxBN block this thread will compute
+  // actual base of thread, i.e. assume block top is 0,0, and block bottom is BM-1, BN-1
+  // basically is thread base location in matrix
   const unsigned int rowBaseInBlock = threadTileRow * TM;
   const unsigned int colBaseInBlock = threadTileCol * TN;
 
@@ -54,17 +56,6 @@ __global__ void sgemmVectorize(int M, int N, int K, float alpha,
     // later access As[dotIdx * BM + localRow] is coalesced.
     const int AsSize = BM * BK / 4; // number of float4 elements (since BK multiple of 4)
     for (unsigned int idx = linearTid; idx < (unsigned int)AsSize; idx += threadsPerBlock) {
-      // compute which float4 this is: idx enumerates across (BM * BK / 4)
-      // map idx -> (a_r, a_c4) where a_c4 indexes groups of 4 in BK
-      unsigned int a_r = (idx * 4) % BM;              // row inside BM
-      unsigned int tmp = (idx * 4) / BM;              // how many full rows we've passed
-      unsigned int a_c4 = tmp;                        // index of 4-wide group in BK
-      // Equivalent mapping simpler: iterate linear across a_r major then a_c groups:
-      // But to keep simple and predictable, compute more robustly:
-      // Let's compute by row-major linear index L = idx*4
-      unsigned int L = idx * 4;
-      unsigned int a_row = L / BK; // 0..BM-1
-      unsigned int a_col = (L % BK) / 1; // 0..BK-1 (we will load 4 from a_col .. a_col+3)
       // To avoid complex mapping mistakes, we'll compute a_r and a_c like this:
       // totalElements = BM * BK; elementIndex = idx * 4;
       unsigned int elementIndex = idx * 4;

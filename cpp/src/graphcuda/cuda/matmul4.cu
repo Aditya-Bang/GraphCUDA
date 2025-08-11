@@ -1,7 +1,11 @@
 #include "matmul.cuh"
 
 // compile-time warp width for indexing (keep constexpr)
-constexpr int WARP = 32;
+constexpr int THREADS_PER_WARP = 32;
+
+__device__ inline bool is_aligned_16(const void* p) {
+    return (reinterpret_cast<uintptr_t>(p) & 0xF) == 0;
+}
 
 // Helper: safe float4 reader (handles tails)
 __device__ inline float4 safe_load4(const float* ptr, int stride, int idx0, int limit0, int limit1) {
@@ -40,9 +44,9 @@ __device__ inline void safe_store4(float* ptr, int idx0, int limit, const float4
   WM,WN    : warp tile sizes (rows x cols) computed by each warp
   WNITER   : how many subtiles across WN (affects inner loops)
   TM,TN    : per-thread micro-tiles inside warp subtiles
-  NUM_THREADS: number of threads per CTA (block)
+  NUM_THREADS_PER_BLOCK: number of threads per CTA (block)
 */
-template <int BM, int BN, int BK, int WM, int WN, int WNITER, int TM, int TN, int NUM_THREADS>
+template <int BM, int BN, int BK, int WM, int WN, int WNITER, int TM, int TN, int NUM_THREADS_PER_BLOCK>
 __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
                                 const float* __restrict__ A,
                                 const float* __restrict__ B,
@@ -52,10 +56,10 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
   static_assert((BN % WN) == 0, "BN must be divisible by WN");
   static_assert((WM % TM) == 0, "WM must be divisible by TM");
   static_assert((WN % TN) == 0, "WN must be divisible by TN");
-  static_assert((NUM_THREADS % WARP) == 0, "NUM_THREADS must be multiple of warp size");
+  static_assert((NUM_THREADS_PER_BLOCK % THREADS_PER_WARP) == 0, "NUM_THREADS_PER_BLOCK must be multiple of warp size");
 
   // derived quantities
-  const int WARPS_PER_BLOCK = NUM_THREADS / WARP;
+  const int WARPS_PER_BLOCK = NUM_THREADS_PER_BLOCK / THREADS_PER_WARP;
   const int WARPS_PER_ROW = BN / WN;
   const int WARPS_PER_COL = BM / WM;
 
@@ -64,12 +68,12 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
   const unsigned int cCol = blockIdx.x;
 
   // warp index within block and its grid position (warpRow, warpCol)
-  const unsigned int warpId = (threadIdx.x / WARP);
+  const unsigned int warpId = (threadIdx.x / THREADS_PER_WARP);
   const unsigned int warpCol = warpId % WARPS_PER_ROW;
   const unsigned int warpRow = warpId / WARPS_PER_ROW;
 
   // thread index inside warp
-  const unsigned int lane = threadIdx.x & (WARP - 1);
+  const unsigned int lane = threadIdx.x & (THREADS_PER_WARP - 1);
 
   // thread's sub-tile coordinates inside a warp tile:
   // we assign each lane to compute a TM x TN microtile (or part of it)
@@ -95,8 +99,9 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
   const int warpC_col0 = C_block_col + warpCol * WN;
 
   // per-thread accumulator: we let each thread accumulate TM x TN microtile
-  float accum[ /* TM * TN */ 64 ]; // use fixed max to avoid VLA; we'll index carefully
+  float accum[ TM * TN /* 64 */ ]; // use fixed max to avoid VLA; we'll index carefully
   // zero the needed portion
+  #pragma unroll
   for (int i = 0; i < TM * TN; ++i) accum[i] = 0.0f;
 
   // cooperative loading parameters
@@ -113,7 +118,7 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
     // Cooperative load As (BM x BK) into shared memory using linear-stride
     // We will write As in transposed layout that favors later reading:
     // store As as As[ (k_col) * BM + row ] so that reading over row is coalesced.
-    const int AsFloat4 = (AsElems + 3) / 4;
+    const int AsFloat4 = CEIL_DIV(BM * BK, 4);
     for (unsigned int idx = linearTid; idx < (unsigned int)AsFloat4; idx += threadsInBlock) {
       unsigned int elementIndex = idx * 4; // flat index in As natural row-major (row major over BM rows, then BK)
       unsigned int a_r = elementIndex / BK;           // row inside BM
@@ -122,8 +127,14 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
       const int global_c = bk + (int)a_c;
       float4 v;
       if (global_r < M) {
-        if (global_c + 3 < K) {
+        if (global_c + 3 < K && is_aligned_16(&A[global_r * K + global_c])) {
           v = reinterpret_cast<const float4*>(&A[global_r * K + global_c])[0];
+        } else if (global_c + 3 < K) {
+          // pointer not 16-byte aligned: do scalar loads to avoid fault
+          v.x = A[global_r * K + global_c + 0];
+          v.y = A[global_r * K + global_c + 1];
+          v.z = A[global_r * K + global_c + 2];
+          v.w = A[global_r * K + global_c + 3];
         } else {
           // tail: load scalars cautiously
           v.x = (global_c + 0 < K) ? A[global_r * K + global_c + 0] : 0.0f;
@@ -146,7 +157,7 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
     }
 
     // Cooperative load Bs (BK x BN) into shared memory (row-major)
-    const int BsFloat4 = (BsElems + 3) / 4;
+    const int BsFloat4 = CEIL_DIV(BK * BN, 4);
     for (unsigned int idx = linearTid; idx < (unsigned int)BsFloat4; idx += threadsInBlock) {
       unsigned int elementIndex = idx * 4;
       unsigned int b_r = elementIndex / BN;   // 0..BK-1
@@ -155,8 +166,13 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
       const int global_c = B_block_col + (int)b_c;
       float4 v;
       if (global_r < K) {
-        if (global_c + 3 < N) {
+        if (global_c + 3 < N && is_aligned_16(&B[global_r * N + global_c])) {
           v = reinterpret_cast<const float4*>(&B[global_r * N + global_c])[0];
+        } else if (global_c + 3 < N) {
+          v.x = B[global_r * N + global_c + 0];
+          v.y = B[global_r * N + global_c + 1];
+          v.z = B[global_r * N + global_c + 2];
+          v.w = B[global_r * N + global_c + 3];
         } else {
           v.x = (global_c + 0 < N) ? B[global_r * N + global_c + 0] : 0.0f;
           v.y = (global_c + 1 < N) ? B[global_r * N + global_c + 1] : 0.0f;
@@ -223,8 +239,9 @@ __global__ void sgemmWarptiling(int M, int N, int K, float alpha,
     for (int tn = 0; tn < TN; tn += 4) {
       int globalCol = warpC_col0 + threadColInWarp * TN + tn;
       // try vector write if possible and aligned
+      uintptr_t addr = reinterpret_cast<uintptr_t>(&crow[tn]);
       float4 oldv;
-      if (globalCol + 3 < N) {
+      if (globalCol + 3 < N && ((globalCol & 3) == 0) && (addr % 16 == 0)) {
         // safe to read 4 floats
         oldv = reinterpret_cast<float4*>(&crow[tn])[0];
         float4 newv;
@@ -267,7 +284,7 @@ torch::Tensor matmul4(torch::Tensor A, torch::Tensor B) {
     float *C_ptr = C.data_ptr<float>();
 
     // tuned values (example for modern NVIDIA GPUs)
-    constexpr int NUM_THREADS = 128; // threads per block (divisible by 32)
+    constexpr int NUM_THREADS_PER_BLOCK = 128; // threads per block (divisible by 32)
     constexpr int BK = 16;
     constexpr int TM = 8;
     constexpr int TN = 4;
@@ -281,18 +298,18 @@ torch::Tensor matmul4(torch::Tensor A, torch::Tensor B) {
     constexpr int BN = 128;
 
     // Sanity static asserts (compile-time)
-    static_assert(NUM_THREADS % WARP == 0, "NUM_THREADS must be multiple of warp size");
+    static_assert(NUM_THREADS_PER_BLOCK % THREADS_PER_WARP == 0, "NUM_THREADS_PER_BLOCK must be multiple of warp size");
     static_assert(BM % WM == 0 && BN % WN == 0, "block tile must be multiple of warp tile");
     static_assert(WM % TM == 0 && WN % TN == 0, "warp tile must be multiple of per-thread microtile");
 
     dim3 grid(CEIL_DIV(N, BN), CEIL_DIV(M, BM));
-    dim3 block(NUM_THREADS);
+    dim3 block(NUM_THREADS_PER_BLOCK);
 
     // shared memory bytes: BM*BK + BK*BN floats
     size_t shared_bytes = (size_t)BM * (size_t)BK * sizeof(float) + (size_t)BK * (size_t)BN * sizeof(float);
 
     // instantiate kernel (these template args must match launcher constants)
-    sgemmWarptiling<BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS>
+    sgemmWarptiling<BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS_PER_BLOCK>
         <<<grid, block, shared_bytes>>>(M, N, K, 1.0f, A_ptr, B_ptr, 0.0f, C_ptr);
 
     cudaError_t err = cudaGetLastError();
