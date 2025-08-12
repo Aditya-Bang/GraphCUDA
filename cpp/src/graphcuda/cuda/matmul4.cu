@@ -7,10 +7,9 @@ __device__ inline bool is_aligned_16(const void* p) {
     return (reinterpret_cast<uintptr_t>(p) & 0xF) == 0;
 }
 
-__device__ inline float4 safe_load4_row(const float* row_ptr, int stride_unused_if_row, int idx0, int row_len) {
+__device__ inline float4 safe_load4(const float* row_ptr, int stride_unused, int idx0, int row_len, int unused) {
   float4 out;
-  // row_ptr points to the row start; row_len = number of columns in that row
-  if (idx0 + 3 < row_len) {
+  if (idx0 + 3 < row_len && ((reinterpret_cast<uintptr_t>(&row_ptr[idx0]) & 0xF) == 0)) {
     out = reinterpret_cast<const float4*>(&row_ptr[idx0])[0];
   } else {
     out.x = (idx0 + 0 < row_len) ? row_ptr[idx0 + 0] : 0.0f;
@@ -193,7 +192,7 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
         for (unsigned int tn = 0; tn < TN; tn += 4) {
           int globalCol = blockCol * BN + warpCol * WN + subWarpTileCol * WSUBN + threadColInWarpSubtile * TN + tn;
           if (globalCol >= N) continue;
-          float4 oldv = safe_load4_row(crow, 0, tn, N); // load existing C values
+          float4 oldv = safe_load4(crow, N, tn, N, N); // load existing C values
           float4 newv;
           newv.x = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 0)] + beta * oldv.x;
           newv.y = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 1)] + beta * oldv.y;
