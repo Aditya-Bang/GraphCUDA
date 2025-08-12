@@ -65,9 +65,9 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
   constexpr unsigned int WSUBM = WM / WMITER; // sub-tile rows per warp
   constexpr unsigned int WSUBN = WN / WNITER; // sub-tile cols per warp
 
-  const uint threadIdxInWarp = threadIdx.x % THREADS_PER_WARP; // [0, 31]
-  const uint threadColInWarpSubtile = threadIdxInWarp % (WSUBN / TN); // i%(16/4)
-  const uint threadRowInWarpSubtile = threadIdxInWarp / (WSUBN / TN); // i/4
+  const unsigned int threadIdxInWarp = threadIdx.x % THREADS_PER_WARP; // [0, 31]
+  const unsigned int threadColInWarpSubtile = threadIdxInWarp % (WSUBN / TN); // i%(16/4)
+  const unsigned int threadRowInWarpSubtile = threadIdxInWarp / (WSUBN / TN); // i/4
 
   // Shared memory (dynamic): As [BM * BK], Bs [BK * BN]
   extern __shared__ float shmem[];
