@@ -103,10 +103,10 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
       // store As as As[ (k_col) * BM + row ] so that reading over row is coalesced.
       // Each thread can load multiple float4 elements
       if (a_block_row < (unsigned int)BM) {
-        if (a_block_col + 0 < BK) As[(a_block_col + 0) * BM + a_block_row] = v.x;
-        if (a_block_col + 1 < BK) As[(a_block_col + 1) * BM + a_block_row] = v.y;
-        if (a_block_col + 2 < BK) As[(a_block_col + 2) * BM + a_block_row] = v.z;
-        if (a_block_col + 3 < BK) As[(a_block_col + 3) * BM + a_block_row] = v.w;
+        if (a_block_col + 0 < (unsigned int)BK) As[(a_block_col + 0) * BM + a_block_row] = v.x;
+        if (a_block_col + 1 < (unsigned int)BK) As[(a_block_col + 1) * BM + a_block_row] = v.y;
+        if (a_block_col + 2 < (unsigned int)BK) As[(a_block_col + 2) * BM + a_block_row] = v.z;
+        if (a_block_col + 3 < (unsigned int)BK) As[(a_block_col + 3) * BM + a_block_row] = v.w;
       }
     }
 
@@ -135,11 +135,11 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
 
       // store Bs as Bs[ (k_col) * BN + row ] so that reading over row is coalesced.
       // Each thread can load multiple float4 elements
-      if (b_block_row < (unsigned int)BK) { // TODO: remove if statement here
-        if (b_block_row + 0 < BK) Bs[(b_block_row + 0) * BN + b_block_col] = v.x;
-        if (b_block_row + 1 < BK) Bs[(b_block_row + 1) * BN + b_block_col] = v.y;
-        if (b_block_row + 2 < BK) Bs[(b_block_row + 2) * BN + b_block_col] = v.z;
-        if (b_block_row + 3 < BK) Bs[(b_block_row + 3) * BN + b_block_col] = v.w;
+      if (b_block_row < (unsigned int)BK) {
+        if (b_block_col + 0 < (unsigned int)BN) Bs[(b_block_row + 0) * BN + b_block_col] = v.x;
+        if (b_block_col + 1 < (unsigned int)BN) Bs[(b_block_row + 1) * BN + b_block_col] = v.y;
+        if (b_block_col + 2 < (unsigned int)BN) Bs[(b_block_row + 2) * BN + b_block_col] = v.z;
+        if (b_block_col + 3 < (unsigned int)BN) Bs[(b_block_row + 3) * BN + b_block_col] = v.w;
       }
     }
 
