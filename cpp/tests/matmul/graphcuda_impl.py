@@ -6,7 +6,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.utils import to_dense_adj, add_self_loops
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
-from graphcuda import matmul4
+from graphcuda import matmul3
 
 dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
 data = dataset[0]
@@ -24,7 +24,7 @@ X = data.x  # Node features
 
 
 # Instead of using Cora features
-N, D_in, D_out = 100, 100, 100  # rows, cols of A and B
+N, D_in, D_out = 2000, 2000, 2000  # rows, cols of A and B
 
 
 indices = torch.randint(0, N, (1, N//100), device=device).repeat(2, 1)
@@ -70,7 +70,7 @@ print(f"B (features) shape: {B.shape}")
 # Warmup
 for _ in range(10):
     _ = torch.matmul(A, B)
-    _ = matmul4(A, B)
+    _ = matmul3(A, B)
     _ = torch.sparse.mm(A_sparse, B)
 
 
@@ -78,7 +78,7 @@ for _ in range(10):
 start = torch.cuda.Event(enable_timing=True)
 end = torch.cuda.Event(enable_timing=True)
 start.record()
-C1 = matmul4(A, B)
+C1 = matmul3(A, B)
 end.record()
 torch.cuda.synchronize()
 graphcuda_time = start.elapsed_time(end)

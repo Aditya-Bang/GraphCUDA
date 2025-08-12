@@ -7,20 +7,16 @@ __device__ inline bool is_aligned_16(const void* p) {
     return (reinterpret_cast<uintptr_t>(p) & 0xF) == 0;
 }
 
-// Helper: safe float4 reader (handles tails)
-__device__ inline float4 safe_load4(const float* ptr, int stride, int idx0, int limit0, int limit1) {
-  // ptr points to row-major array with row stride `stride`.
-  // We attempt to read elements at positions idx0..idx0+3 in the row `limit0` (row index).
-  // limit1 is the number of columns in that row (to check bounds).
+__device__ inline float4 safe_load4_row(const float* row_ptr, int stride_unused_if_row, int idx0, int row_len) {
   float4 out;
-  if (idx0 + 3 < limit1) {
-    out = reinterpret_cast<const float4*>(&ptr[idx0])[0];
+  // row_ptr points to the row start; row_len = number of columns in that row
+  if (idx0 + 3 < row_len) {
+    out = reinterpret_cast<const float4*>(&row_ptr[idx0])[0];
   } else {
-    // scalar fallback per element
-    out.x = (idx0 + 0 < limit1) ? ptr[idx0 + 0] : 0.0f;
-    out.y = (idx0 + 1 < limit1) ? ptr[idx0 + 1] : 0.0f;
-    out.z = (idx0 + 2 < limit1) ? ptr[idx0 + 2] : 0.0f;
-    out.w = (idx0 + 3 < limit1) ? ptr[idx0 + 3] : 0.0f;
+    out.x = (idx0 + 0 < row_len) ? row_ptr[idx0 + 0] : 0.0f;
+    out.y = (idx0 + 1 < row_len) ? row_ptr[idx0 + 1] : 0.0f;
+    out.z = (idx0 + 2 < row_len) ? row_ptr[idx0 + 2] : 0.0f;
+    out.w = (idx0 + 3 < row_len) ? row_ptr[idx0 + 3] : 0.0f;
   }
   return out;
 }
@@ -107,10 +103,10 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
       // store As as As[ (k_col) * BM + row ] so that reading over row is coalesced.
       // Each thread can load multiple float4 elements
       if (a_block_row < (unsigned int)BM) {
-        As[(a_block_col + 0) * BM + a_block_row] = v.x;
-        As[(a_block_col + 1) * BM + a_block_row] = v.y;
-        As[(a_block_col + 2) * BM + a_block_row] = v.z;
-        As[(a_block_col + 3) * BM + a_block_row] = v.w;
+        if (a_block_col + 0 < BK) As[(a_block_col + 0) * BM + a_block_row] = v.x;
+        if (a_block_col + 1 < BK) As[(a_block_col + 1) * BM + a_block_row] = v.y;
+        if (a_block_col + 2 < BK) As[(a_block_col + 2) * BM + a_block_row] = v.z;
+        if (a_block_col + 3 < BK) As[(a_block_col + 3) * BM + a_block_row] = v.w;
       }
     }
 
@@ -137,13 +133,13 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
         v.x = v.y = v.z = v.w = 0.0f;
       }
 
-      // store Bs as Bs[ (k_col) * BM + row ] so that reading over row is coalesced.
+      // store Bs as Bs[ (k_col) * BN + row ] so that reading over row is coalesced.
       // Each thread can load multiple float4 elements
       if (b_block_row < (unsigned int)BK) { // TODO: remove if statement here
-        Bs[(b_block_row + 0) * BM + b_block_col] = v.x;
-        Bs[(b_block_row + 1) * BM + b_block_col] = v.y;
-        Bs[(b_block_row + 2) * BM + b_block_col] = v.z;
-        Bs[(b_block_row + 3) * BM + b_block_col] = v.w;
+        if (b_block_row + 0 < BK) Bs[(b_block_row + 0) * BN + b_block_col] = v.x;
+        if (b_block_row + 1 < BK) Bs[(b_block_row + 1) * BN + b_block_col] = v.y;
+        if (b_block_row + 2 < BK) Bs[(b_block_row + 2) * BN + b_block_col] = v.z;
+        if (b_block_row + 3 < BK) Bs[(b_block_row + 3) * BN + b_block_col] = v.w;
       }
     }
 
@@ -197,7 +193,7 @@ __global__ void __launch_bounds__(NUM_THREADS_PER_BLOCK) sgemmWarptiling(
         for (unsigned int tn = 0; tn < TN; tn += 4) {
           int globalCol = blockCol * BN + warpCol * WN + subWarpTileCol * WSUBN + threadColInWarpSubtile * TN + tn;
           if (globalCol >= N) continue;
-          float4 oldv = safe_load4(crow, N, tn, N, N); // load existing C values
+          float4 oldv = safe_load4_row(crow, 0, tn, N); // load existing C values
           float4 newv;
           newv.x = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 0)] + beta * oldv.x;
           newv.y = alpha * threadResults[(subWarpTileRow * TM + tm) * (WNITER * TN) + (subWarpTileCol * TN + tn + 1)] + beta * oldv.y;
