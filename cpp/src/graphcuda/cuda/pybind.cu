@@ -1,6 +1,7 @@
 #include <torch/extension.h>
 #include "gcn.cuh"
 #include "matmul.cuh"
+#include "gemm_cublas.cuh"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // Expose GCN conv functions
@@ -12,4 +13,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("matmul2", &matmul2, "Matrix Multiplication - Shared Memory Cache-Blocking");
     m.def("matmul3", &matmul3, "Matrix Multiplication - 2D Block Tiling and Vectorized Memory Access");
     m.def("matmul4", &matmul4, "Matrix Multiplication - Warptiling");
+
+    // cublas matmul
+    m.def("gemm_cublas", &gemm_cublas, "Matrix Multiplication - cuBLAS");
 }

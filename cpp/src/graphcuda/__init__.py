@@ -22,5 +22,6 @@ matmul1 = cpp_ext.matmul1
 matmul2 = cpp_ext.matmul2
 matmul3 = cpp_ext.matmul3
 matmul4 = cpp_ext.matmul4
+gemm_cublas = cpp_ext.gemm_cublas
 
-__all__ = ["GCN", "matmul1", "matmul2", "matmul3", "matmul4"]
+__all__ = ["GCN", "matmul1", "matmul2", "matmul3", "matmul4", "gemm_cublas"]
