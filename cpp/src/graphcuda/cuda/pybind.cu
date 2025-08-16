@@ -2,6 +2,7 @@
 #include "gcn.cuh"
 #include "matmul.cuh"
 #include "gemm_cublas.cuh"
+#include "spmm_cusparse.cuh"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // Expose GCN conv functions
@@ -16,4 +17,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
     // cublas matmul
     m.def("gemm_cublas", &gemm_cublas, "Matrix Multiplication - cuBLAS");
+
+    // cusparse sparse-dense matmul
+    m.def("spmm_cusparse", &spmm_cusparse, "Matrix Multiplication Sparse-Dense - cuSparse");
 }

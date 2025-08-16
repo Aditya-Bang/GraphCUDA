@@ -32,7 +32,7 @@ setup(name='graphcuda',
                 '-gencode=arch=compute_75,code=sm_75',
             ]
         },
-        libraries=['cublas'],
+        libraries=['cublas', 'cusparse'],
     )],
     cmdclass={'build_ext': BuildExtension},
     zip_safe=False,

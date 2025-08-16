@@ -6,7 +6,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.utils import to_dense_adj, add_self_loops
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
-from graphcuda import gemm_cublas
+from graphcuda import spmm_cusparse
 
 dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
 data = dataset[0]
@@ -45,32 +45,11 @@ A_sparse = torch.sparse_coo_tensor(
 print(f"A (adjacency) shape: {A.shape}")
 print(f"B (features) shape: {B.shape}")
 
-# # Sparsity
-# if A.is_sparse:
-#     num_elements = A.shape[0] * A.shape[1]
-#     num_nonzero = A._nnz()  # Number of non-zero elements
-#     sparsity = 1.0 - (num_nonzero / num_elements)
-#     print(f"A sparsity: {sparsity:.4f} ({num_nonzero} / {num_elements} non-zero)")
-# else:
-#     num_elements = A.numel()
-#     num_nonzero = (A != 0).sum().item()
-#     sparsity = 1.0 - (num_nonzero / num_elements)
-#     print(f"A sparsity: {sparsity:.4f} ({num_nonzero} / {num_elements} non-zero)")
-
-# # B is dense
-# num_elements_b = B.numel()
-# num_nonzero_b = (B != 0).sum().item()
-# sparsity_b = 1.0 - (num_nonzero_b / num_elements_b)
-# print(f"B sparsity: {sparsity_b:.4f} ({num_nonzero_b} / {num_elements_b} non-zero)")
-
-# print(f"edge_index shape: {edge_index.shape}")
-# print(f"Number of edges: {edge_index.shape[1]}")
-
 #### EXTREMELY IMPORTANT, WARMUP effects timings a lot for manual matmul, torch.matmul already warmed up for some reason?
 # Warmup
 for _ in range(10):
     _ = torch.matmul(A, B)
-    _ = gemm_cublas(A, B)
+    _ = spmm_cusparse(A_sparse, B)
     _ = torch.sparse.mm(A_sparse, B)
 
 
@@ -78,7 +57,7 @@ for _ in range(10):
 start = torch.cuda.Event(enable_timing=True)
 end = torch.cuda.Event(enable_timing=True)
 start.record()
-C1 = gemm_cublas(A, B)
+C1 = spmm_cusparse(A_sparse, B)
 end.record()
 torch.cuda.synchronize()
 graphcuda_time = start.elapsed_time(end)
