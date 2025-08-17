@@ -1,12 +1,18 @@
 #include "gcn.cuh"
+#include "gemm_cublas.cuh"
+#include "spmm_cusparse.cuh"
 
 std::tuple<torch::Tensor, torch::Tensor> gcn_conv_forward(
     torch::Tensor X,
-    torch::Tensor adjm,
+    torch::Tensor adjm,   // sparse COO
     torch::Tensor weights,
-    bool apply_relu) {
+    bool apply_relu) 
+{
+    // Sparse-dense multiplication: adjm * X
+    torch::Tensor AX = spmm_cusparse(adjm, X);
 
-    torch::Tensor y = adjm.mm(X).mm(weights);
+    // Dense-dense multiplication: (adjm*X) * weights
+    torch::Tensor y = gemm_cublas(AX, weights);
 
     torch::Tensor mask;
     if (apply_relu) {
@@ -21,20 +27,26 @@ std::tuple<torch::Tensor, torch::Tensor> gcn_conv_forward(
 std::tuple<torch::Tensor, torch::Tensor> gcn_conv_backward(
     torch::Tensor Y_grad,
     torch::Tensor X_cached,
-    torch::Tensor adjm,
+    torch::Tensor adjm,           // sparse COO
     const torch::Tensor& weights,
     bool apply_relu,
-    torch::Tensor mask_cached) {
-
+    torch::Tensor mask_cached) 
+{
     if (apply_relu) {
         Y_grad = Y_grad * mask_cached;
     }
 
-    torch::Tensor A_X = adjm.mm(X_cached);
+    // Sparse-dense multiplication: adjm * X_cached
+    torch::Tensor A_X = spmm_cusparse(adjm, X_cached);
 
-    torch::Tensor dW = A_X.transpose(0, 1).mm(Y_grad);
+    // Dense-dense multiplication: (A*X)^T * Y_grad -> dW
+    torch::Tensor dW = gemm_cublas(A_X.transpose(0, 1), Y_grad);
 
-    torch::Tensor dX = adjm.mm(Y_grad.mm(weights.transpose(0, 1)));
+    // Dense-dense multiplication: Y_grad * W^T
+    torch::Tensor YWt = gemm_cublas(Y_grad, weights.transpose(0, 1));
+
+    // Sparse-dense multiplication: adjm * (Y_grad * W^T) -> dX
+    torch::Tensor dX = spmm_cusparse(adjm, YWt);
 
     return std::make_tuple(dX, dW);
 }

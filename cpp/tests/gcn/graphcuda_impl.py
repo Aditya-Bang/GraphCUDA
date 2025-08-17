@@ -18,7 +18,12 @@ adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 data = data.to(device)
-adj = adj.to(device)
+adj = torch.sparse_coo_tensor(
+    edge_index,
+    edge_weight,
+    (data.num_nodes, data.num_nodes),
+    device=device
+).coalesce()
 
 in_features = dataset.num_node_features
 hidden_features = 16
