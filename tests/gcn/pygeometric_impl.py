@@ -7,7 +7,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GCNConv
 
 
-dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
+dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
 data = dataset[0]
 
 

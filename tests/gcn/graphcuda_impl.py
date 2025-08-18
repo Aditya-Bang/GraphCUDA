@@ -9,7 +9,7 @@ from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from graphcuda import GCN
 
 
-dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../data')), name='Cora')
+dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
 data = dataset[0]
 
 edge_index, _ = add_self_loops(data.edge_index, num_nodes=data.num_nodes)
