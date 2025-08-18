@@ -25,6 +25,7 @@ GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverage
 ```bash
 uv venv
 source .venv/bin/activate
+uv pip install -r requirements.txt
 uv pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
 uv pip install .
 ```
