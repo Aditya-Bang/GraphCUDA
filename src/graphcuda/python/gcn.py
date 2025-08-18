@@ -46,15 +46,3 @@ class GCNConv(nn.Module):
 
     def forward(self, X: torch.Tensor, adjm: torch.Tensor) -> torch.Tensor:
         return GCNConvFunction.apply(X, adjm, self.weights, self.apply_relu)
-
-
-class GCN(torch.nn.Module):
-    def __init__(self, in_features, hidden_features, out_features):
-        super(GCN, self).__init__()
-        self.conv1 = GCNConv(in_features, hidden_features, apply_relu=True)
-        self.conv2 = GCNConv(hidden_features, out_features, apply_relu=False)
-
-    def forward(self, x, adj):
-        x = self.conv1(x, adj)
-        x = self.conv2(x, adj)
-        return torch.log_softmax(x, dim=1)

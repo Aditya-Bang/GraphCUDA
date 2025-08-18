@@ -20,13 +20,16 @@ tests/
     gcn/
         graphcuda_impl.py
         pytorch_impl.py
+        pygeometric_impl.py
+    matmul/
+        graphcuda_impl.py
 src/graphcuda/
     __init__.py
-    __init__.pyi
     python/
+        __init__.py
         gcn.py
     cpp/
-        gcn.cpp/cu
+    cuda/
 setup.py
 pyproject.toml
 README.md

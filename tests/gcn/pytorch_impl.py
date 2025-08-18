@@ -33,7 +33,7 @@ class ManualGCN(nn.Module):
     def forward(self, x):
         x = self.gcn1(x, self.adjm)
         x = F.relu(x)
-        x = F.dropout(x, training=self.training)
+        # x = F.dropout(x, training=self.training)
         x = self.gcn2(x, self.adjm)
         return F.log_softmax(x, dim=1)
 

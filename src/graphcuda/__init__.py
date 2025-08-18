@@ -17,7 +17,7 @@ except ImportError as e:
         "Could not import the native C++ extension '_graphcuda'. Original error: " + str(e)
     ) from e
 
-from .python.gcn import GCN
+from .python.gcn import GCNConv
 matmul1 = cpp_ext.matmul1
 matmul2 = cpp_ext.matmul2
 matmul3 = cpp_ext.matmul3
@@ -25,4 +25,4 @@ matmul4 = cpp_ext.matmul4
 gemm_cublas = cpp_ext.gemm_cublas
 spmm_cusparse = cpp_ext.spmm_cusparse
 
-__all__ = ["GCN", "matmul1", "matmul2", "matmul3", "matmul4", "gemm_cublas", "spmm_cusparse"]
+__all__ = ["GCNConv", "matmul1", "matmul2", "matmul3", "matmul4", "gemm_cublas", "spmm_cusparse"]

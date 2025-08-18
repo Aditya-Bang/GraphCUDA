@@ -6,11 +6,23 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.utils import to_dense_adj, add_self_loops
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
-from graphcuda import GCN
+from graphcuda import GCNConv
 
 
 dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
 data = dataset[0]
+
+class GCN(torch.nn.Module):
+    def __init__(self, in_features, hidden_features, out_features):
+        super(GCN, self).__init__()
+        self.conv1 = GCNConv(in_features, hidden_features, apply_relu=True)
+        self.conv2 = GCNConv(hidden_features, out_features, apply_relu=False)
+
+    def forward(self, x, adj):
+        x = self.conv1(x, adj)
+        x = self.conv2(x, adj)
+        return torch.log_softmax(x, dim=1)
+
 
 edge_index, _ = add_self_loops(data.edge_index, num_nodes=data.num_nodes)
 edge_index, edge_weight = gcn_norm(edge_index, num_nodes=data.num_nodes)
