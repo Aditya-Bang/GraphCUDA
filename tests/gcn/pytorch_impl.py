@@ -82,11 +82,28 @@ print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test A
 epochs = 20
 total_time = 0
 
+def time_pytorch_function(func, args):
+    # CUDA is asynchronous, so we need to synchronize
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    start.record()
+    func_output = func(args) if args is not None else func()
+    end.record()
+    torch.cuda.synchronize()
+    # Convert milliseconds to seconds
+    return start.elapsed_time(end) / 1000, func_output
+
+# warm-up
+for _ in range(20):
+    train()
+
 for epoch in range(1, epochs + 1):
-    epoch_start_time = time.time()
-    loss = train()
-    epoch_end_time = time.time()
-    epoch_time = epoch_end_time - epoch_start_time
+    # epoch_start_time = time.time()
+    # loss = train()
+    # epoch_end_time = time.time()
+    # epoch_time = epoch_end_time - epoch_start_time
+    epoch_time, loss = time_pytorch_function(train, None)
     total_time += epoch_time
     train_acc, val_acc, test_acc = test()
     print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "
