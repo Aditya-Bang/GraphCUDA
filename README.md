@@ -150,6 +150,12 @@ Benchmark Summary
 - Automated tests and CI
 - Improved documentation
 
+- move gemm test to dev
+- and sparse gemm test
+- clean up cuda folder and remove cpp folder
+- gcn make them pytest, remove tests for matmul in mult
+- kernel fused mult add
+
 ## License
 
 MIT License

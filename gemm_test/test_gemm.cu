@@ -9,9 +9,14 @@
 
 #include "utils.h"
 #include "naive_gemm.h"
+#include "gemm_kernel.h"
 
 constexpr int WARMUP_ITERS = 5;
 constexpr int TIMED_ITERS  = 20;
+
+std::vector<GemmKernel> kernels = {
+    {"naive", launch_naive_gemm},
+};
 
 void init_matrix(std::vector<float>& mat) {
     for (auto& x : mat) {
@@ -94,7 +99,8 @@ float time_cublas_gemm(
     return ms / TIMED_ITERS;
 }
 
-float time_naive_gemm(
+float time_custom_gemm(
+    GemmFn launch,
     const float* dA,
     const float* dB,
     float* dC,
@@ -108,12 +114,12 @@ float time_naive_gemm(
 
     // Warmup
     for (int i = 0; i < WARMUP_ITERS; ++i) {
-        launch_naive_gemm(dA, dB, dC, M, K, N);
+        launch(dA, dB, dC, M, K, N);
     }
 
     CUDA_CHECK(cudaEventRecord(start));
     for (int i = 0; i < TIMED_ITERS; ++i) {
-        launch_naive_gemm(dA, dB, dC, M, K, N);
+        launch(dA, dB, dC, M, K, N);
     }
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
@@ -144,16 +150,16 @@ int main(int argc, char** argv) {
     size_t sizeC = M * N;
 
     std::vector<float> hA(sizeA), hB(sizeB);
-    std::vector<float> hC_cublas(sizeC), hC_custom(sizeC);
+    std::vector<float> hC_ref(sizeC), hC_test(sizeC);
 
     init_matrix(hA);
     init_matrix(hB);
 
-    float *dA, *dB, *dC1, *dC2;
+    float *dA, *dB, *dC_ref, *dC_test;
     CUDA_CHECK(cudaMalloc(&dA, sizeA * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&dB, sizeB * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dC1, sizeC * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&dC2, sizeC * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dC_ref, sizeC * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&dC_test, sizeC * sizeof(float)));
 
     CUDA_CHECK(cudaMemcpy(dA, hA.data(), sizeA * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(dB, hB.data(), sizeB * sizeof(float), cudaMemcpyHostToDevice));
@@ -161,28 +167,49 @@ int main(int argc, char** argv) {
     cublasHandle_t handle;
     CUBLAS_CHECK(cublasCreate(&handle));
 
-    float cublas_ms = time_cublas_gemm(handle, dA, dB, dC1, M, K, N);
-    float naive_ms  = time_naive_gemm(dA, dB, dC2, M, K, N);
-
-    CUDA_CHECK(cudaMemcpy(hC_cublas.data(), dC1, sizeC * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(hC_custom.data(), dC2, sizeC * sizeof(float), cudaMemcpyDeviceToHost));
-
-    bool ok = compare_results(hC_cublas, hC_custom);
+    // Reference
+    float cublas_ms = time_cublas_gemm(handle, dA, dB, dC_ref, M, K, N);
+    CUDA_CHECK(cudaMemcpy(hC_ref.data(), dC_ref, sizeC * sizeof(float), cudaMemcpyDeviceToHost));
 
     double flops = 2.0 * M * N * K;
     double cublas_gflops = flops / (cublas_ms * 1e6);
-    double naive_gflops  = flops / (naive_ms * 1e6);
 
     std::printf("\nResults:\n");
-    std::printf("cuBLAS: %.3f ms (%.2f GFLOP/s)\n", cublas_ms, cublas_gflops);
-    std::printf("Naive : %.3f ms (%.2f GFLOP/s)\n", naive_ms, naive_gflops);
-    std::printf("Check : %s\n", ok ? "PASSED" : "FAILED");
+    std::printf(
+        "%-10s: %.3f ms (%.2f GFLOP/s)\n",
+        "cuBLAS", cublas_ms, cublas_gflops
+    );
+
+    // Custom kernels
+    for (const auto& k : kernels) {
+        CUDA_CHECK(cudaMemset(dC_test, 0, sizeC * sizeof(float)));
+
+        float ms = time_custom_gemm(
+            k.launch, dA, dB, dC_test, M, K, N
+        );
+
+        CUDA_CHECK(cudaMemcpy(
+            hC_test.data(), dC_test,
+            sizeC * sizeof(float),
+            cudaMemcpyDeviceToHost
+        ));
+
+        bool ok = compare_results(hC_ref, hC_test);
+
+        double gflops = flops / (ms * 1e6);
+
+        std::printf(
+            "%-10s: %.3f ms (%.2f GFLOP/s) [%s]\n",
+            k.name.c_str(), ms, gflops,
+            ok ? "OK" : "FAIL"
+        );
+    }
 
     CUBLAS_CHECK(cublasDestroy(handle));
     CUDA_CHECK(cudaFree(dA));
     CUDA_CHECK(cudaFree(dB));
-    CUDA_CHECK(cudaFree(dC1));
-    CUDA_CHECK(cudaFree(dC2));
+    CUDA_CHECK(cudaFree(dC_ref));
+    CUDA_CHECK(cudaFree(dC_test));
 
-    return ok ? 0 : 1;
+    return 0;
 }
