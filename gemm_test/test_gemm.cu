@@ -8,14 +8,17 @@
 #include <cublas_v2.h>
 
 #include "utils.h"
-#include "naive_gemm.h"
 #include "gemm_kernel.h"
+
+#include "naive_gemm.h"
+#include "tiled_gemm.h"
 
 constexpr int WARMUP_ITERS = 5;
 constexpr int TIMED_ITERS  = 20;
 
 std::vector<GemmKernel> kernels = {
     {"naive", launch_naive_gemm},
+    {"tiled", launch_tiled_gemm},
 };
 
 void init_matrix(std::vector<float>& mat) {
