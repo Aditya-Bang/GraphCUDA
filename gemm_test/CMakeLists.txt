@@ -16,6 +16,7 @@ set(CMAKE_CUDA_ARCHITECTURES 75)
 add_executable(test_gemm
     test_gemm.cu
     kernels/naive_gemm.cu
+    kernels/shared_mem_gemm.cu
     kernels/tiled_gemm.cu
 )
 

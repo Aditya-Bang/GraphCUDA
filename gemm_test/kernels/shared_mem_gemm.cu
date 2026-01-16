@@ -1,6 +1,6 @@
 #include <cuda_runtime.h>
 #include "utils.h"
-#include "tiled_gemm.h"
+#include "shared_mem_gemm.h"
 
 // need block of same length and width, otherwise if bk > bn or bm, can't load shared memory properly
 // let x be N direction (iterating over cols in C), y be M direction (iterating over rows in C)
@@ -8,7 +8,7 @@
 #define BLOCK_SIZE 16
 
 
-__global__ void tiled_gemm_kernel(
+__global__ void shared_mem_gemm_kernel(
     const float* __restrict__ A,
     const float* __restrict__ B,
     float* __restrict__ C,
@@ -46,7 +46,7 @@ __global__ void tiled_gemm_kernel(
     }
 }
 
-void launch_tiled_gemm(
+void launch_shared_mem_gemm(
     const float* A,
     const float* B,
     float* C,
@@ -60,5 +60,5 @@ void launch_tiled_gemm(
         CEIL_DIV(M, BLOCK_SIZE)
     );
 
-    tiled_gemm_kernel<<<grid, block>>>(A, B, C, M, K, N);
+    shared_mem_gemm_kernel<<<grid, block>>>(A, B, C, M, K, N);
 }
