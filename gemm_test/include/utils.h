@@ -5,6 +5,8 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 
+#define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
+
 // CUDA API error checking
 #define CUDA_CHECK(err)                                                    \
     do {                                                                   \

@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include "utils.h"
 #include "naive_gemm.h"
 
 __global__ void naive_gemm_kernel(
@@ -31,8 +32,8 @@ void launch_naive_gemm(
 ) {
     dim3 block(16, 16);
     dim3 grid(
-        (N + block.x - 1) / block.x,
-        (M + block.y - 1) / block.y
+        CEIL_DIV(N, block.x),
+        CEIL_DIV(M, block.y)
     );
 
     naive_gemm_kernel<<<grid, block>>>(A, B, C, M, K, N);

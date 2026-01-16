@@ -1,12 +1,12 @@
 #include <cuda_runtime.h>
+#include "utils.h"
 #include "tiled_gemm.h"
 
-#define BM 128
-#define BN 128
-#define BK 8
+// need block of same length and width, otherwise if bk > bn or bm, can't load shared memory properly
+// let x be N direction (col), y be M direction (row)
 
-#define TM 8
-#define TN 8
+#define BLOCK_SIZE 16
+
 
 __global__ void tiled_gemm_kernel(
     const float* __restrict__ A,
@@ -14,74 +14,35 @@ __global__ void tiled_gemm_kernel(
     float* __restrict__ C,
     int M, int K, int N
 ) {
-    __shared__ float As[BM][BK];
-    __shared__ float Bs[BK][BN];
+    const int cRow = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    const int cCol = blockIdx.x * BLOCK_SIZE + threadIdx.x;
 
-    int blockRow = blockIdx.y;
-    int blockCol = blockIdx.x;
+    __shared__ float As[BLOCK_SIZE * BLOCK_SIZE];
+    __shared__ float Bs[BLOCK_SIZE * BLOCK_SIZE];
 
-    int threadRow = threadIdx.y;
-    int threadCol = threadIdx.x;
-
-    int row = blockRow * BM + threadRow * TM;
-    int col = blockCol * BN + threadCol * TN;
-
-    float acc[TM][TN] = {0};
-
-    for (int k0 = 0; k0 < K; k0 += BK) {
-
-        // Load A tile
-        for (int i = 0; i < TM; ++i) {
-            int r = blockRow * BM + threadRow * TM + i;
-            int c = k0 + threadCol;
-            if (r < M && c < K) {
-                As[threadRow * TM + i][threadCol] = A[r * K + c];
-            } else {
-                As[threadRow * TM + i][threadCol] = 0.0f;
-            }
-        }
-
-        // Load B tile
-        for (int j = 0; j < TN; ++j) {
-            int r = k0 + threadRow;
-            int c = blockCol * BN + threadCol * TN + j;
-            if (r < K && c < N) {
-                Bs[threadRow][threadCol * TN + j] = B[r * N + c];
-            } else {
-                Bs[threadRow][threadCol * TN + j] = 0.0f;
-            }
-        }
-
+    float cValue = 0.0f;
+    for (int blockIdxK = 0; blockIdxK < CEIL_DIV(K, BLOCK_SIZE); blockIdxK++) {
+        if (cRow < M && (blockIdxK * BLOCK_SIZE + threadIdx.x) < K)
+            As[threadIdx.y * BLOCK_SIZE + threadIdx.x] = A[cRow * K + blockIdxK * BLOCK_SIZE + threadIdx.x];
+        else
+            As[threadIdx.y * BLOCK_SIZE + threadIdx.x] = 0.0f;
+        
+        if (cCol < N && (blockIdxK * BLOCK_SIZE + threadIdx.y) < K)
+            Bs[threadIdx.y * BLOCK_SIZE + threadIdx.x] = B[(blockIdxK * BLOCK_SIZE + threadIdx.y) * N + cCol];
+        else
+            Bs[threadIdx.y * BLOCK_SIZE + threadIdx.x] = 0.0f;
+        
         __syncthreads();
 
-        #pragma unroll
-        for (int k = 0; k < BK; ++k) {
-            #pragma unroll
-            for (int i = 0; i < TM; ++i) {
-                float a = As[threadRow * TM + i][k];
-                #pragma unroll
-                for (int j = 0; j < TN; ++j) {
-                    acc[i][j] += a * Bs[k][threadCol * TN + j];
-                }
-            }
+        for (int k = 0; k < BLOCK_SIZE; k++) {
+            cValue += As[threadIdx.y * BLOCK_SIZE + k] * Bs[k * BLOCK_SIZE + threadIdx.x];
         }
 
         __syncthreads();
     }
 
-    // Write back
-    #pragma unroll
-    for (int i = 0; i < TM; ++i) {
-        int r = row + i;
-        if (r < M) {
-            #pragma unroll
-            for (int j = 0; j < TN; ++j) {
-                int c = col + j;
-                if (c < N) {
-                    C[r * N + c] = acc[i][j];
-                }
-            }
-        }
+    if (cRow < M && cCol < N) {
+        C[cRow * N + cCol] = cValue;
     }
 }
 
@@ -93,10 +54,10 @@ void launch_tiled_gemm(
     int K,
     int N
 ) {
-    dim3 block(16, 16);
+    dim3 block(BLOCK_SIZE, BLOCK_SIZE);
     dim3 grid(
-        (N + BN - 1) / BN,
-        (M + BM - 1) / BM
+        CEIL_DIV(N, BLOCK_SIZE),
+        CEIL_DIV(M, BLOCK_SIZE)
     );
 
     tiled_gemm_kernel<<<grid, block>>>(A, B, C, M, K, N);

@@ -23,7 +23,8 @@ std::vector<GemmKernel> kernels = {
 
 void init_matrix(std::vector<float>& mat) {
     for (auto& x : mat) {
-        x = static_cast<float>(rand()) / RAND_MAX;
+        int r = (rand() % 11) - 5;   // integers in [-5, 5]
+        x = static_cast<float>(r);
     }
 }
 
