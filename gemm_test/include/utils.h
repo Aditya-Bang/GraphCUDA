@@ -7,6 +7,9 @@
 
 #define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
 
+// ROW MAJOR INDEX macro
+#define RM_INDEX(row, col, num_cols) ((row) * (num_cols) + (col))
+
 // CUDA API error checking
 #define CUDA_CHECK(err)                                                    \
     do {                                                                   \
