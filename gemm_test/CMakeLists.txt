@@ -18,6 +18,7 @@ add_executable(test_gemm
     kernels/naive_gemm.cu
     kernels/shared_mem_gemm.cu
     kernels/tiled_gemm.cu
+    kernels/vec_gemm.cu
 )
 
 target_include_directories(test_gemm PRIVATE include)

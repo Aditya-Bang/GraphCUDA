@@ -13,6 +13,7 @@
 #include "naive_gemm.h"
 #include "shared_mem_gemm.h"
 #include "tiled_gemm.h"
+#include "vec_gemm.h"
 
 constexpr int WARMUP_ITERS = 5;
 constexpr int TIMED_ITERS  = 20;
@@ -21,6 +22,7 @@ std::vector<GemmKernel> kernels = {
     {"naive", launch_naive_gemm},
     {"shared_mem", launch_shared_mem_gemm},
     {"tiled", launch_tiled_gemm},
+    {"vectorized", launch_vec_gemm}
 };
 
 void init_matrix(std::vector<float>& mat) {
