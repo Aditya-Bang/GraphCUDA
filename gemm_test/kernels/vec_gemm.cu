@@ -27,7 +27,9 @@ __global__ void vec_gemm_kernel(
     float cTileValues[THREAD_TILE_SIZE * THREAD_TILE_SIZE] = {0.0f};
     
     for (int blockIdxK = 0; blockIdxK < CEIL_DIV(K, BLOCK_SIZE); blockIdxK++) {
+        #pragma unroll
         for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY++) {
+            #pragma unroll
             for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX++) {
                 int aRow = blockIdx.y * BLOCK_SIZE + threadIdx.y * THREAD_TILE_SIZE + threadTileY;
                 int aCol = blockIdxK * BLOCK_SIZE + threadIdx.x * THREAD_TILE_SIZE + threadTileX;
@@ -107,20 +109,41 @@ __global__ void vec_gemm_kernel(
         __syncthreads();
 
         // calculate c values in tile
+        // no bounds checking needed because BLOCK_SIZE multiple of THREAD_TILE_SIZE and THREAD_TILE_SIZE is a multiple of 4
         for (int threadIdxK = 0; threadIdxK < BLOCK_SIZE; threadIdxK++) {
-            for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY++) {
+            #pragma unroll
+            for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY += 4) {
                 int aRowShared = threadIdx.y * THREAD_TILE_SIZE + threadTileY;
                 int aColShared = threadIdxK;
-                regA[threadTileY] = As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)];
+
+                const float4 a4 = *reinterpret_cast<const float4*>(
+                    &As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)]
+                );
+
+                regA[threadTileY] = a4.x;
+                regA[threadTileY + 1] = a4.y;
+                regA[threadTileY + 2] = a4.z;
+                regA[threadTileY + 3] = a4.w;
             }
 
-            for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX++) {
+            #pragma unroll
+            for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX += 4) {
                 int bRowShared = threadIdxK;
                 int bColShared = threadIdx.x * THREAD_TILE_SIZE + threadTileX;
-                regB[threadTileX] = Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)];
+
+                const float4 b4 = *reinterpret_cast<const float4*>(
+                    &Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)]
+                );
+
+                regB[threadTileX] = b4.x;
+                regB[threadTileX + 1] = b4.y;
+                regB[threadTileX + 2] = b4.z;
+                regB[threadTileX + 3] = b4.w;
             }
 
+            #pragma unroll
             for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY++) {
+                #pragma unroll
                 for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX++) {
                     int cRowReg = threadTileY;
                     int cColReg = threadTileX;
