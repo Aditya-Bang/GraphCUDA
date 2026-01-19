@@ -9,6 +9,7 @@
 #define BLOCK_SIZE 64 // (BLOCK_SIZE/THREAD_TILE_SIZE)**2 threads per block
 #define THREAD_TILE_SIZE 8 // each thread computes (THREAD_TILE_SIZE)**2 tile, must divide BLOCK_SIZE, must be divisible by 4 for SIMD
 
+// IMPORTANT: Assumes K % 4 == 0 and N % 4 == 0 for vectorized loads/stores
 
 __global__ void vec_gemm_kernel(
     const float* __restrict__ A,
