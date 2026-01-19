@@ -30,17 +30,29 @@ __global__ void vec_gemm_kernel(
         #pragma unroll
         for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY++) {
             #pragma unroll
-            for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX++) {
+            for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE; threadTileX += 4) { // Assume K % 4 == 0 and N % 4 == 0
                 int aRow = blockIdx.y * BLOCK_SIZE + threadIdx.y * THREAD_TILE_SIZE + threadTileY;
                 int aCol = blockIdxK * BLOCK_SIZE + threadIdx.x * THREAD_TILE_SIZE + threadTileX;
                 int aRowShared = threadIdx.y * THREAD_TILE_SIZE + threadTileY;
                 int aColShared = threadIdx.x * THREAD_TILE_SIZE + threadTileX;
 
                 // transpose As for coalesced access
-                if (aRow < M && aCol < K) {
-                    As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)] = A[RM_INDEX(aRow, aCol, K)];
+                if (aRow < M && aCol + 3 < K) {
+                    // As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)] = A[RM_INDEX(aRow, aCol, K)];
+
+                    const float4 a4 = *reinterpret_cast<const float4*>(
+                        &A[RM_INDEX(aRow, aCol, K)]
+                    );
+
+                    As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)] = a4.x;
+                    As[RM_INDEX(aColShared + 1, aRowShared, BLOCK_SIZE)] = a4.y;
+                    As[RM_INDEX(aColShared + 2, aRowShared, BLOCK_SIZE)] = a4.z;
+                    As[RM_INDEX(aColShared + 3, aRowShared, BLOCK_SIZE)] = a4.w;
                 } else {
                     As[RM_INDEX(aColShared, aRowShared, BLOCK_SIZE)] = 0.0f;
+                    As[RM_INDEX(aColShared + 1, aRowShared, BLOCK_SIZE)] = 0.0f;
+                    As[RM_INDEX(aColShared + 2, aRowShared, BLOCK_SIZE)] = 0.0f;
+                    As[RM_INDEX(aColShared + 3, aRowShared, BLOCK_SIZE)] = 0.0f;
                 }
 
                 int bRow = blockIdxK * BLOCK_SIZE + threadIdx.y * THREAD_TILE_SIZE + threadTileY;
@@ -49,62 +61,22 @@ __global__ void vec_gemm_kernel(
                 int bRowShared = threadIdx.y * THREAD_TILE_SIZE + threadTileY;
                 int bColShared = threadIdx.x * THREAD_TILE_SIZE + threadTileX;
 
-                if (bRow < K && bCol < N) {
-                    Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)] = B[RM_INDEX(bRow, bCol, N)];
+                if (bRow < K && bCol + 3 < N) {
+                    // Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)] = B[RM_INDEX(bRow, bCol, N)];
+
+                    reinterpret_cast<float4*>(
+                        &Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)]
+                    )[0] = *reinterpret_cast<const float4*>(
+                        &B[RM_INDEX(bRow, bCol, N)]
+                    );
                 } else {
                     Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)] = 0.0f;
+                    Bs[RM_INDEX(bRowShared, bColShared + 1, BLOCK_SIZE)] = 0.0f;
+                    Bs[RM_INDEX(bRowShared, bColShared + 2, BLOCK_SIZE)] = 0.0f;
+                    Bs[RM_INDEX(bRowShared, bColShared + 3, BLOCK_SIZE)] = 0.0f;
                 }
             }
         }
-    // for (int blockIdxK = 0; blockIdxK < CEIL_DIV(K, BLOCK_SIZE); blockIdxK++) {
-    //     for (int threadTileY = 0; threadTileY < THREAD_TILE_SIZE; threadTileY++) {
-    //         for (int threadTileX = 0; threadTileX < THREAD_TILE_SIZE/4; threadTileX += 4) {
-    //             int aRow = blockIdx.y * BLOCK_SIZE + threadIdx.y * THREAD_TILE_SIZE + threadTileY; // not neccessarily multiple of 4
-    //             int aCol = blockIdxK * BLOCK_SIZE + threadIdx.x * THREAD_TILE_SIZE + threadTileX; // always multiple of 4
-    //             int aRowShared = threadIdx.y * THREAD_TILE_SIZE + threadTileY;
-    //             int aColShared = threadIdx.x * THREAD_TILE_SIZE + threadTileX;
-
-    //             if (aRow < M && aCol + 3 < K && (RM_INDEX(aRow, aCol, K) % 4 == 0)) { // TODO: fix this mod 4 required issue
-    //                 float4 tmp = reinterpret_cast<const float4 *>(&A[RM_INDEX(aRow, aCol, K)])[0];
-    //                 As[RM_INDEX(aRowShared, aColShared, BLOCK_SIZE)] = tmp.x;
-    //                 As[RM_INDEX(aRowShared, aColShared + 1, BLOCK_SIZE)] = tmp.y;
-    //                 As[RM_INDEX(aRowShared, aColShared + 2, BLOCK_SIZE)] = tmp.z;
-    //                 As[RM_INDEX(aRowShared, aColShared + 3, BLOCK_SIZE)] = tmp.w;
-    //             } else {
-    //                 #pragma unroll
-    //                 for (int vectorizedIdx = 0; vectorizedIdx < 4; vectorizedIdx++) { // TODO: make this 3 if fixed above
-    //                     if (aRow < M && aCol + vectorizedIdx < K) {
-    //                         As[RM_INDEX(aRowShared, aColShared + vectorizedIdx, BLOCK_SIZE)] = A[RM_INDEX(aRow, aCol + vectorizedIdx, K)];
-    //                     } else {
-    //                         As[RM_INDEX(aRowShared, aColShared + vectorizedIdx, BLOCK_SIZE)] = 0.0f;
-    //                     }
-    //                 }
-    //             }
-
-    //             int bRow = blockIdxK * BLOCK_SIZE + threadIdx.y * THREAD_TILE_SIZE + threadTileY;
-    //             int bCol = blockIdx.x * BLOCK_SIZE + threadIdx.x * THREAD_TILE_SIZE + threadTileX;
-    //             // same as aRowShared and aColShared
-    //             int bRowShared = threadIdx.y * THREAD_TILE_SIZE + threadTileY;
-    //             int bColShared = threadIdx.x * THREAD_TILE_SIZE + threadTileX;
-
-    //             if (bRow < K && bCol + 3 < N && (RM_INDEX(bRow, bCol, N) % 4 == 0)) {
-    //                 float4 tmp = reinterpret_cast<const float4 *>(&B[RM_INDEX(bRow, bCol, N)])[0];
-    //                 Bs[RM_INDEX(bRowShared, bColShared, BLOCK_SIZE)] = tmp.x;
-    //                 Bs[RM_INDEX(bRowShared, bColShared + 1, BLOCK_SIZE)] = tmp.y;
-    //                 Bs[RM_INDEX(bRowShared, bColShared + 2, BLOCK_SIZE)] = tmp.z;
-    //                 Bs[RM_INDEX(bRowShared, bColShared + 3, BLOCK_SIZE)] = tmp.w;
-    //             } else {
-    //                 #pragma unroll
-    //                 for (int vectorizedIdx = 0; vectorizedIdx < 4; vectorizedIdx++) { // TODO: make this 3 if fixed above
-    //                     if (bRow < K && bCol + vectorizedIdx < N) {
-    //                         Bs[RM_INDEX(bRowShared, bColShared + vectorizedIdx, BLOCK_SIZE)] = B[RM_INDEX(bRow, bCol + vectorizedIdx, N)];
-    //                     } else {
-    //                         Bs[RM_INDEX(bRowShared, bColShared + vectorizedIdx, BLOCK_SIZE)] = 0.0f;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
         
         __syncthreads();
 
