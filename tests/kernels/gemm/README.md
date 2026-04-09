@@ -22,7 +22,7 @@ mkdir build
 cd build
 cmake .. -G "Visual Studio 17 2022" -A x64
 cmake --build . --config Release
-./Release/test_gemm.exe M K N
+.\Release\test_gemm.exe M K N
 ```
 
 The build defaults to **`CMAKE_CUDA_ARCHITECTURES=native`**, so you need a CUDA-capable GPU visible when you run `cmake`. For cross-compilation, or for headless machines without a GPU at configure time, set an explicit architecture—for example:
