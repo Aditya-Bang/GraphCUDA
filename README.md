@@ -14,19 +14,17 @@ GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverage
 
 ### Prerequisites
 
-- Python 3.12+
-- CUDA Toolkit (tested with CUDA 12.4)
-- PyTorch (with CUDA support)
+- Python 3.11 or 3.12 (`>=3.11,<3.13`)
+- CUDA Toolkit matching **PyTorch 2.4.1 + cu124** (CUDA **12.4** toolchain; see [PyTorch compatibility](https://pytorch.org/get-started/locally/))
+- NVIDIA driver supporting that CUDA generation
 - C++17 compiler ([cl](https://visualstudio.microsoft.com/downloads/?q=build+tools) on Windows, GCC/Clang on Linux)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended for fast virtualenv and pip)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (installs dependencies and builds the package from `pyproject.toml`)
 
 ### Linux
 
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
-uv pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
 uv pip install .
 ```
 
@@ -37,9 +35,7 @@ uv venv
 .venv\Scripts\activate
 set DISTUTILS_USE_SDK=1
 set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
-uv pip install -r requirements.txt
-uv pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cu124
-uv pip install --no-build-isolation .
+uv pip install .
 ```
 
 ## Usage
@@ -80,9 +76,8 @@ src/graphcuda/
 tests/
     gcn/                 # GCN training/benchmark scripts
     matmul/              # Matrix multiplication tests
-setup.py                 # Script for building custom CUDA modules
+setup.py
 pyproject.toml
-requirements.txt
 ```
 
 ## Development
@@ -93,13 +88,6 @@ requirements.txt
 - On Windows, DLL search paths are set automatically in `__init__.py`
 - To add new CUDA functions, expose them in `pybind.cu` and rebuild
 
-### Building from Source
-
-If you change CUDA/C++ code, reinstall the package:
-
-```bash
-uv pip install --no-build-isolation .
-```
 
 ### Running Tests
 
