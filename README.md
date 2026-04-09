@@ -6,18 +6,19 @@ GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverage
 
 - Custom CUDA kernels for GCN layers and matrix multiplication
 - PyTorch extension with pybind11 for seamless Python integration
-- Easy-to-use Python API, compatible with PyTorch tensors
-- Example implementations and benchmarks against PyTorch/torch-geometric
-- Cross-platform: Windows (with MSVC + CUDA) and Linux
+- Example implementations and benchmarks against PyTorch and torch-geometric
+- Cross-platform: Windows and Linux; tested on Turing and Ampere architectures
 
 ## Installation
 
 ### Prerequisites
 
+- CUDA-capable GPU
 - Python 3.11 or 3.12 (`>=3.11,<3.13`)
-- CUDA Toolkit matching **PyTorch 2.4.1 + cu124** (CUDA **12.4** toolchain; see [PyTorch compatibility](https://pytorch.org/get-started/locally/))
-- NVIDIA driver supporting that CUDA generation
-- C++17 compiler ([cl](https://visualstudio.microsoft.com/downloads/?q=build+tools) on Windows, GCC/Clang on Linux)
+- CUDA Toolkit 12.8+ and a compatible NVIDIA driver
+    - Windows: https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/
+    - Linux: https://docs.nvidia.com/cuda/cuda-installation-guide-linux/
+- C++17 compiler ([cl](https://visualstudio.microsoft.com/downloads/?q=build+tools) on Windows, GCC or Clang on Linux)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (installs dependencies and builds the package from `pyproject.toml`)
 
 ### Linux
