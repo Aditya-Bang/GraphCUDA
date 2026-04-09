@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 # Default: compile for the build machine's GPU (needs CUDA + visible GPU at configure time).
 # Override: cmake -DCMAKE_CUDA_ARCHITECTURES=80 ..
 set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "CUDA GPU architectures")
+set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
 
 # GraphCUDA repo root (this file lives in tests/kernels/gemm/)
 get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
