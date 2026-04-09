@@ -1,5 +1,26 @@
 # Testing Harness for Custom GEMM
 
+## Running the Tests (Linux)
+
+1. Install the [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (includes `nvcc`, CUDA headers, and cuBLAS). Ensure `nvcc` is on your `PATH`.
+
+2. Configure and build (single-configuration generators put the binary in `build/`):
+
+```sh
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j
+./test_gemm M K N
+```
+
+The build defaults to **`CMAKE_CUDA_ARCHITECTURES=native`**, so you need a CUDA-capable GPU visible when you run `cmake`. For cross-compilation or headless machines without a GPU at configure time, set an explicit architecture, for example:
+
+```sh
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=80
+```
+
+**CMake 3.25+** is required (see `CMakeLists.txt`).
+
 ## Running the Tests (Windows)
 
 1. Open `x64 Native Tools Command Prompt for VS 2022`
@@ -24,6 +45,7 @@ cuBLAS    : 1.724 ms (1160.37 GFLOP/s)
 naive     : 8.943 ms (223.65 GFLOP/s) [OK]
 shared_mem: 7.763 ms (257.64 GFLOP/s) [OK]
 tiled     : 5.998 ms (333.47 GFLOP/s) [OK]
+vectorized: 4.512 ms (443.26 GFLOP/s) [OK]
 ```
 
 ## Adding a GEMM Kernel
