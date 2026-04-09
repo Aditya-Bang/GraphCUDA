@@ -93,8 +93,8 @@ pyproject.toml
 ### Running Tests
 
 ```bash
-python tests/gcn/pytorch_impl.py
-python tests/gcn/graphcuda_impl.py
+pytest tests/gcn/pytorch_impl.py
+pytest tests/gcn/graphcuda_impl.py
 ```
 
 

@@ -1,4 +1,3 @@
-import os
 import time
 import torch
 import torch.nn.functional as F
@@ -8,9 +7,6 @@ from torch_geometric.nn.conv.gcn_conv import gcn_norm
 
 from graphcuda import GCNConv
 
-
-dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')), name='Cora')
-data = dataset[0]
 
 class GCN(torch.nn.Module):
     def __init__(self, in_features, hidden_features, out_features):
@@ -24,82 +20,86 @@ class GCN(torch.nn.Module):
         return torch.log_softmax(x, dim=1)
 
 
-edge_index, _ = add_self_loops(data.edge_index, num_nodes=data.num_nodes)
-edge_index, edge_weight = gcn_norm(edge_index, num_nodes=data.num_nodes)
-adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
+def test_graphcuda_gcn(DATA_PATH: str):
+    dataset = Planetoid(root=DATA_PATH, name='Cora')
+    data = dataset[0]
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-data = data.to(device)
-adj = torch.sparse_coo_tensor(
-    edge_index,
-    edge_weight,
-    (data.num_nodes, data.num_nodes),
-    device=device
-).coalesce()
+    edge_index, _ = add_self_loops(data.edge_index, num_nodes=data.num_nodes)
+    edge_index, edge_weight = gcn_norm(edge_index, num_nodes=data.num_nodes)
+    adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
 
-in_features = dataset.num_node_features
-hidden_features = 16
-out_features = dataset.num_classes
-model = GCN(in_features, hidden_features, out_features).to(device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    data = data.to(device)
+    adj = torch.sparse_coo_tensor(
+        edge_index,
+        edge_weight,
+        (data.num_nodes, data.num_nodes),
+        device=device
+    ).coalesce()
 
-optimizer = torch.optim.SGD(model.parameters(), lr=1)
+    in_features = dataset.num_node_features
+    hidden_features = 16
+    out_features = dataset.num_classes
+    model = GCN(in_features, hidden_features, out_features).to(device)
 
-print(f"Model is on device: {next(model.parameters()).device}")
-print(f"Data.x is on device: {data.x.device}")
-print(f"Data.edge_index is on device: {data.edge_index.device}")
+    optimizer = torch.optim.SGD(model.parameters(), lr=1)
 
-def train():
-    model.train()
-    optimizer.zero_grad()
-    out = model.forward(data.x, adj)
-    loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
-    loss.backward()
-    optimizer.step()
-    return loss.item()
+    print(f"Model is on device: {next(model.parameters()).device}")
+    print(f"Data.x is on device: {data.x.device}")
+    print(f"Data.edge_index is on device: {data.edge_index.device}")
 
-def test():
-    model.eval()
-    with torch.no_grad():
+    def train():
+        model.train()
+        optimizer.zero_grad()
         out = model.forward(data.x, adj)
-        pred = out.argmax(dim=1)
-        accs = []
-        for mask in [data.train_mask, data.val_mask, data.test_mask]:
-            correct = pred[mask] == data.y[mask]
-            accs.append(int(correct.sum()) / int(mask.sum()))
-    return accs
+        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        loss.backward()
+        optimizer.step()
+        return loss.item()
 
-train_acc, val_acc, test_acc = test()
-print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+    def evaluate():
+        model.eval()
+        with torch.no_grad():
+            out = model.forward(data.x, adj)
+            pred = out.argmax(dim=1)
+            accs = []
+            for mask in [data.train_mask, data.val_mask, data.test_mask]:
+                correct = pred[mask] == data.y[mask]
+                accs.append(int(correct.sum()) / int(mask.sum()))
+        return accs
 
-epochs = 20
-total_time = 0
+    train_acc, val_acc, test_acc = evaluate()
+    print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
 
-def time_pytorch_function(func, args):
-    # CUDA is asynchronous, so we need to synchronize
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
+    epochs = 20
+    total_time = 0
 
-    start.record()
-    func_output = func(args) if args is not None else func()
-    end.record()
-    torch.cuda.synchronize()
-    # Convert milliseconds to seconds
-    return start.elapsed_time(end) / 1000, func_output
+    def time_pytorch_function(func, args):
+        # CUDA is asynchronous, so we need to synchronize
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
 
-# warm-up
-for _ in range(20):
-    train()
+        start.record()
+        func_output = func(args) if args is not None else func()
+        end.record()
+        torch.cuda.synchronize()
+        # Convert milliseconds to seconds
+        return start.elapsed_time(end) / 1000, func_output
 
-for epoch in range(1, epochs + 1):
-    # epoch_start_time = time.time()
-    # loss = train()
-    # epoch_end_time = time.time()
-    # epoch_time = epoch_end_time - epoch_start_time
-    epoch_time, loss = time_pytorch_function(train, None)
-    total_time += epoch_time
-    train_acc, val_acc, test_acc = test()
-    print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "
-          f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+    # warm-up
+    for _ in range(20):
+        train()
 
-print(f"\nTotal training time for {epochs} epochs: {total_time:.4f} seconds")
-print(f"Average time per epoch (train + test): {total_time / epochs:.6f} seconds")
+    for epoch in range(1, epochs + 1):
+        # epoch_start_time = time.time()
+        # loss = train()
+        # epoch_end_time = time.time()
+        # epoch_time = epoch_end_time - epoch_start_time
+        epoch_time, loss = time_pytorch_function(train, None)
+        total_time += epoch_time
+        train_acc, val_acc, test_acc = evaluate()
+        print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "
+              f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+
+    print(f"\nTotal training time for {epochs} epochs: {total_time:.4f} seconds")
+    print(f"Average time per epoch (train + test): {total_time / epochs:.6f} seconds")
