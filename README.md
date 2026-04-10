@@ -35,7 +35,7 @@ uv pip install .
 uv venv
 .venv\Scripts\activate
 set DISTUTILS_USE_SDK=1
-set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+set CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8
 uv pip install .
 ```
 

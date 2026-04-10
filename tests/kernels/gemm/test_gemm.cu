@@ -15,8 +15,8 @@
 #include "tiled_gemm.h"
 #include "vec_gemm.h"
 
-constexpr int WARMUP_ITERS = 5;
-constexpr int TIMED_ITERS  = 20;
+constexpr int WARMUP_ITERS = 20;
+constexpr int TIMED_ITERS  = 100;
 
 std::vector<GemmKernel> kernels = {
     {"naive", launch_naive_gemm},

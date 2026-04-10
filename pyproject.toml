@@ -3,7 +3,7 @@ requires = [
     "setuptools>=80.9.0",
     "pybind11>=3.0.0",
     "numpy>=2.3.2",
-    "torch==2.4.1",
+    "torch==2.7.1",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -15,7 +15,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "numpy>=2.3.2",
-    "torch==2.4.1",
+    "torch==2.7.1",
     "torch-geometric>=2.6.1",
     "scipy"
 ]
@@ -25,14 +25,14 @@ dev = [
     "pytest",
 ]
 
-# PyTorch CUDA 12.4 wheel index (used by uv for build and runtime).
+# PyTorch CUDA 12.8 wheel index (used by uv for build and runtime).
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu124" }
+torch = { index = "pytorch-cu128" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

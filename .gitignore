@@ -19,3 +19,6 @@ uv.lock
 
 # C++ generated files
 *.obj
+
+# Pytest
+.pytest_cache/
