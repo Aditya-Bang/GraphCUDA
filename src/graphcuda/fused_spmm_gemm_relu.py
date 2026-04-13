@@ -63,14 +63,64 @@ def _fused_spmm_gemm_relu_kernel(
     BLOCK_K1: tl.constexpr,
     BLOCK_K2: tl.constexpr,
 ):
+    # TODO: ignoring K1 blocks right now, assume all just one block in K1 dim, fix later.
     # ------------------- Compute PIDS -------------------
     pid = tl.program_id(0)
     pid_m, pid_n = pid // BLOCK_N, pid % BLOCK_N
     
+    # ------------------- Compute Logical Offsets -------------------
+    offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
     
+    # ------------------- Loop over K2 blocks (like dense matmul) -------------------
+    acc2 = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     
-    pass
-
+    for k2_block in range(0, K2, BLOCK_K2):
+        # ------------------- Compute K1 block indices and offsets -------------------
+        K1_BLOCKIDX_M = tl.load(bsr_crow_ptr + pid_m)
+        K1_BLOCKIDX_M_NEXT = tl.load(bsr_crow_ptr + pid_m + 1)
+        K1_ADJM = K1_BLOCKIDX_M_NEXT - K1_BLOCKIDX_M # changes for each row block on adjm, since all have different sizes
+        
+        offs_k1_adjm = tl.arange(K1_BLOCKIDX_M * BLOCK_M, K1_BLOCKIDX_M_NEXT * BLOCK_M)
+        offs_k1_x = tl.load(bsr_col_ptr + tl.arange(K1_BLOCKIDX_M, K1_BLOCKIDX_M_NEXT))
+        offs_k2 = (k2_block + tl.arange(0, BLOCK_K2)).to(tl.int64)
+        
+        # ------------------- Load adjm values -------------------
+        adjm_values_ptrs = (
+            bsr_values_ptr
+            + offs_k1_adjm * 1 # all contiguous in row major order
+        ).reshape(BLOCK_M, K1_ADJM)
+        # TODO: add masking here
+        adjm_values = tl.load(adjm_values_ptrs)
+        
+        # ------------------- Load x values -------------------
+        x_ptrs = (
+            x_ptr
+            + offs_k1_x[:, None] * sx_k1
+            + offs_k2[None, :] * sx_k2
+        )
+        x_mask = (offs_k1_x[:, None] < K1) & (offs_k2[None, :] < K2)
+        x_values = tl.load(x_ptrs, mask=x_mask, other=0.0)
+        
+        # ------------------- Load weights values -------------------
+        w_ptrs = (
+            w_ptr
+            + offs_k2[None, :] * sw_k2
+            + offs_n[None, :] * sw_n
+        )
+        w_values = tl.load(w_ptrs)
+        
+        # ------------------- Compute GEMM -------------------
+        acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
+        acc1 += tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
+        acc2 += tl.dot(acc1, w_ptrs, acc=acc2, input_ptr=0, output_ptr=0)
+    
+    # ------------------- Apply ReLU -------------------
+    if apply_relu:
+        acc2 = tl.maximum(acc2, 0.0)
+    
+    # ------------------- Write back to output -------------------
+    tl.store(out_ptr + offs_m[:, None] * so_m + offs_n[None, :] * so_n, acc2)
 
 def fused_spmm_gemm_relu(
     adjm: torch.Tensor,
