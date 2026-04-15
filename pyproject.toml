@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pandas",
 ]
 
 # PyTorch CUDA 12.8 wheel index (used by uv for build and runtime).

@@ -22,3 +22,6 @@ uv.lock
 
 # Pytest
 .pytest_cache/
+
+# Benchmarks
+*.hatchet
