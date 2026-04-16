@@ -9,6 +9,8 @@ def test_same_matrix_bsr_print():
             [1, 0, 0, 2, 0],
             [0, 4, 0, 0, 213],
             [5, 0, 0, 6, 32],
+            [0, 0, 2, 0, 0],
+            [0, 0, 0, 0, 0],
         ],
         dtype=torch.float32,
     )

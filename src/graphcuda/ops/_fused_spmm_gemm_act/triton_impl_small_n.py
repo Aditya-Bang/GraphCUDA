@@ -15,21 +15,22 @@ Inputs:
 Outputs:
     Y: torch.Tensor. Must be a dense tensor. Shape (M, N)
 
-Each triton program computes BLOCK_M x BLOCK_N of the output. Tile sizes BLOCK_N,
-BLOCK_K1, BLOCK_K2 are chosen by triton.autotune.
+Each triton program computes BLOCK_M x N of the output. Tile sizes BLOCK_K1, BLOCK_K2 are chosen by triton.autotune.
+
+TODO: Shared memory calculations for the op to tune BLOCK_K1, BLOCK_K2.
 """
 
 _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
-    triton.Config(
-        {"BLOCK_N": 64, "BLOCK_K1": 128, "BLOCK_K2": 32},
-        num_stages=2,
-        num_warps=4,
-    ),
     # triton.Config(
-    #     {"BLOCK_N": 128, "BLOCK_K1": 128, "BLOCK_K2": 64},
+    #     {"BLOCK_K1": 128, "BLOCK_K2": 32},
     #     num_stages=2,
-    #     num_warps=8,
+    #     num_warps=4,
     # ),
+    triton.Config(
+        {"BLOCK_K1": 128, "BLOCK_K2": 64},
+        num_stages=2,
+        num_warps=8,
+    ),
 ]
 
 
@@ -38,12 +39,12 @@ _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
     key=["M", "N", "K1", "K2"],
 )
 @triton.jit
-def _fused_spmm_gemm_relu_kernel(
+def _fused_spmm_gemm_relu_kernel_small_n(
     # sizes
-    M,
-    K1,
-    K2,
-    N,
+    M: tl.constexpr,
+    K1: tl.constexpr,
+    K2: tl.constexpr,
+    N: tl.constexpr,
     # ptrs
     x_ptr, # dense X (K1, K2)
     w_ptr, # dense weights (K2, N)
@@ -57,65 +58,84 @@ def _fused_spmm_gemm_relu_kernel(
     so_m, so_n,
     # flags
     apply_relu: tl.constexpr,
-    bsr_values_rm_row_off_ptr,
-    # tile sizes (BLOCK_N, BLOCK_K1, BLOCK_K2 from autotune; BLOCK_M = BSR block rows)
+    # tile sizes
     BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
     BLOCK_K1: tl.constexpr,
     BLOCK_K2: tl.constexpr,
 ):
-    # ------------------- Program IDs (tile over row-blocks × N) -------------------
-    pid = tl.program_id(0)
-    num_pid_n = tl.cdiv(N, BLOCK_N)
-    pid_m = pid // num_pid_n
-    pid_n = pid % num_pid_n
-
-    # ------------------- Logical output row/col indices -------------------
+    # TODO: ignoring K1 blocks right now, assume all just one block in K1 dim, fix later.
+    # ------------------- Compute PIDS -------------------
+    pid_m = tl.program_id(0)
+    
+    # ------------------- Compute Logical Offsets -------------------
     offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M))
-    offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N))
-
-    acc2 = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-
+    offs_n = (tl.arange(0, N))
+    
+    tile_m_crow = tl.load(bsr_crow_ptr + pid_m)
+    tile_m_next_crow = tl.load(bsr_crow_ptr + pid_m + 1)
+    K1_TILE_M = tile_m_next_crow - tile_m_crow
+    
+    tile_m_adjm_bsr_values_offs = BLOCK_M * tile_m_crow
+    offs_k1_adjm = tl.arange(0, BLOCK_K1) # will be masked by K1_TILE_M
+    offs_m_adjm = tl.arange(0, BLOCK_M)
+    
+    offs_adjm_bsr_cols = tl.arange(0, BLOCK_K1) # indexes we want to read from BSR col indices, will be masked by K1_TILE_M, need this because arange needs constant end value
+    offs_k1_x = tl.load(bsr_col_ptr + tile_m_crow + offs_adjm_bsr_cols, mask=offs_adjm_bsr_cols < K1_TILE_M, other=0)
+    
+    # ------------------- Loop over K2 blocks (like dense matmul) -------------------
+    acc2 = tl.zeros((BLOCK_M, N), dtype=tl.float32)
+    
     for k2_block in range(0, K2, BLOCK_K2):
-        K1_BLOCKIDX_M = tl.load(bsr_crow_ptr + pid_m)
-        K1_BLOCKIDX_M_NEXT = tl.load(bsr_crow_ptr + pid_m + 1)
-        K1_ADJM = K1_BLOCKIDX_M_NEXT - K1_BLOCKIDX_M
-
-        base_rm = tl.load(bsr_values_rm_row_off_ptr + pid_m)
-        i_rng = tl.arange(0, BLOCK_M)[:, None]
-        j_rng = tl.arange(0, BLOCK_K1)[None, :]
-        mask_k1 = j_rng < K1_ADJM
-        flat_adjm = base_rm + i_rng * K1_ADJM + j_rng
-        adjm_values = tl.load(bsr_values_ptr + flat_adjm, mask=mask_k1, other=0.0)
-
-        j1 = tl.arange(0, BLOCK_K1)
-        offs_k1_x = tl.load(bsr_col_ptr + K1_BLOCKIDX_M + j1, mask=j1 < K1_ADJM, other=0)
+        # ------------------- Compute K1 block indices and offsets -------------------
         offs_k2 = (k2_block + tl.arange(0, BLOCK_K2))
-
-        x_ptrs = x_ptr + offs_k1_x[:, None] * sx_k1 + offs_k2[None, :] * sx_k2
-        x_mask = (j1[:, None] < K1_ADJM) & (offs_k1_x[:, None] < K1) & (offs_k2[None, :] < K2)
+        
+        # ------------------- Load adjm values -------------------
+        adjm_values_ptrs = (
+            bsr_values_ptr
+            + tile_m_adjm_bsr_values_offs
+            + offs_m_adjm[:, None] * K1_TILE_M
+            + offs_k1_adjm[None, :] * 1 # all contiguous in row major order
+        )
+        adjm_values_mask = (offs_m[:, None] < M) & (offs_k1_adjm[None, :] < K1_TILE_M)
+        adjm_values = tl.load(adjm_values_ptrs, mask=adjm_values_mask, other=0.0)
+        
+        # ------------------- Load x values -------------------
+        x_ptrs = (
+            x_ptr
+            + offs_k1_x[:, None] * sx_k1
+            + offs_k2[None, :] * sx_k2
+        )
+        x_mask = (offs_adjm_bsr_cols[:, None] < K1_TILE_M) & (offs_k1_x[:, None] < K1) & (offs_k2[None, :] < K2)
         x_values = tl.load(x_ptrs, mask=x_mask, other=0.0)
-
-        w_ptrs = w_ptr + offs_k2[:, None] * sw_k2 + offs_n[None, :] * sw_n
+        
+        # ------------------- Load weights values -------------------
+        w_ptrs = (
+            w_ptr
+            + offs_k2[:, None] * sw_k2
+            + offs_n[None, :] * sw_n
+        )
         w_mask = (offs_k2[:, None] < K2) & (offs_n[None, :] < N)
         w_values = tl.load(w_ptrs, mask=w_mask, other=0.0)
-
+        
+        # ------------------- Compute GEMM -------------------
         acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
         acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
         acc2 = tl.dot(acc1, w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
-
+    
+    # ------------------- Apply ReLU -------------------
     if apply_relu:
         acc2 = tl.maximum(acc2, 0.0)
-
-    mask_m = offs_m < M
-    mask_n = offs_n < N
-    tl.store(
-        out_ptr + offs_m[:, None] * so_m + offs_n[None, :] * so_n,
-        acc2,
-        mask=mask_m[:, None] & mask_n[None, :],
+    
+    # ------------------- Write back to output -------------------
+    out_ptrs = (
+        out_ptr
+        + offs_m[:, None] * so_m
+        + offs_n[None, :] * so_n
     )
+    out_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
+    tl.store(out_ptrs, acc2, mask=out_mask)
 
-def fused_spmm_gemm_relu(
+def fused_spmm_gemm_relu_small_n(
     adjm: torch.Tensor,
     X: torch.Tensor,
     weights: torch.Tensor,
@@ -157,32 +177,20 @@ def fused_spmm_gemm_relu(
     assert adjm.values_rm.dim() == 1, "BSR values row major flattened must be 1D"
     nrow_blocks = (M + BLOCK_M - 1) // BLOCK_M
     assert adjm.crow_indices().numel() == nrow_blocks + 1, "unexpected BSR crow_indices length"
-    # Upper bound for K1 column-blocks per row used in the kernel (matches autotune BLOCK_K1).
-    _max_block_k1 = max(c.kwargs["BLOCK_K1"] for c in _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS)
-    assert K1 <= _max_block_k1, f"K1 ({K1}) must be <= {_max_block_k1} (kernel BLOCK_K1 tile)"
-
-    crow = adjm.crow_indices()
-    values_rm_row_off = torch.empty((nrow_blocks,), dtype=torch.int64, device=device)
-    acc = 0
-    for rb in range(nrow_blocks):
-        values_rm_row_off[rb] = acc
-        nb = int(crow[rb + 1].item() - crow[rb].item())
-        acc += nb * BLOCK_M
 
     # ------------------- 2. Triton Kernel Launcher -------------------
     Y = torch.empty((M, N), device=device, dtype=dtype)
 
     grid = lambda meta: (
-        triton.cdiv(M, BLOCK_M) * triton.cdiv(N, meta["BLOCK_N"]),
+        triton.cdiv(M, BLOCK_M),
     )
 
-    _fused_spmm_gemm_relu_kernel[grid](
+    _fused_spmm_gemm_relu_kernel_small_n[grid](
         M, K1, K2, N,
         X, weights, Y,
         adjm.values_rm, adjm.crow_indices(), adjm.col_indices(),
         X.stride(0), X.stride(1), weights.stride(0), weights.stride(1), Y.stride(0), Y.stride(1),
         apply_relu,
-        values_rm_row_off,
         BLOCK_M,
     )
     return Y

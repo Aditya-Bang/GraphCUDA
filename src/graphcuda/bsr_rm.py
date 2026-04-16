@@ -15,7 +15,6 @@ def create_bsr_values_rm(bsr: torch.Tensor) -> torch.Tensor:
 
     crow = bsr.crow_indices()
     vals = bsr.values()
-
     block_rows, block_cols = vals.shape[-2:]
     if block_cols != 1:
         raise ValueError(f"expected blocksize (b, 1), got ({block_rows}, {block_cols})")
