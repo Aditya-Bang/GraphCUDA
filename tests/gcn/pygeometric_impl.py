@@ -9,8 +9,8 @@ from torch_geometric.nn import GCNConv
 class GCN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(GCN, self).__init__()
-        self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, output_dim)
+        self.conv1 = GCNConv(input_dim, hidden_dim, cached=True, add_self_loops=True)
+        self.conv2 = GCNConv(hidden_dim, output_dim, cached=True, add_self_loops=True)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
