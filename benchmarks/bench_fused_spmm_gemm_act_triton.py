@@ -9,7 +9,7 @@ from typing import List, Tuple
 
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import dense_torch_impl, sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_legacy import fused_spmm_gemm_relu_small_n as fused_spmm_gemm_relu_small_n_legacy
+from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n as fused_spmm_gemm_relu_small_n_switch_loop
 from graphcuda.bsr_rm import create_bsr_values_rm
 from graphcuda.fused_spmm_gemm_relu import fused_spmm_gemm_relu
 
@@ -58,7 +58,7 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
     Y_torch_sparse = sparse_torch_impl(adjm_csr, X, weights)
     # Y_triton_naive = fused_spmm_gemm_relu(adjm_bsr, X, weights)
     Y_triton_small_n = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights)
-    Y_triton_small_n_legacy = fused_spmm_gemm_relu_small_n_legacy(adjm_bsr, X, weights)
+    Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights)
 
     atol = 1e-2
     rtol = 1e-4
@@ -72,8 +72,8 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
     passed = torch.allclose(Y_ref, Y_triton_small_n, atol=atol, rtol=rtol)
     print(f"  triton small n: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n).max().item()}")
     
-    passed = torch.allclose(Y_ref, Y_triton_small_n_legacy, atol=atol, rtol=rtol)
-    print(f"  triton small n legacy: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_legacy).max().item()}")
+    passed = torch.allclose(Y_ref, Y_triton_small_n_switch_loop, atol=atol, rtol=rtol)
+    print(f"  triton small n switch loop: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_switch_loop).max().item()}")
     
 
 
@@ -142,4 +142,4 @@ if __name__ == "__main__":
     bench_fn("sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(sparse_torch_impl, dynamic=True), adjm_csr, X, weights)
     # bench_fn("fused_spmm_gemm_relu", args.reps, args.warmup_reps, fused_spmm_gemm_relu, adjm_bsr, X, weights)
     bench_fn("fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights)
-    bench_fn("fused_spmm_gemm_relu_small_n_legacy", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_legacy, adjm_bsr, X, weights)
+    bench_fn("fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights)
