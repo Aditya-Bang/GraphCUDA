@@ -61,7 +61,7 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
     Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights)
 
     atol = 1e-2
-    rtol = 1e-4
+    rtol = 1e-2
 
     passed = torch.allclose(Y_ref, Y_torch_sparse, atol=atol, rtol=rtol)
     print(f"  sparse torch impl: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_torch_sparse).max().item()}")

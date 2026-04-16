@@ -122,7 +122,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
             # ------------------- Compute GEMM -------------------
             acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
             acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
-            acc2 = tl.dot(acc1, w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
+            acc2 = tl.dot(acc1.to(w_values.dtype), w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
     
     # ------------------- Apply ReLU -------------------
     if apply_relu:

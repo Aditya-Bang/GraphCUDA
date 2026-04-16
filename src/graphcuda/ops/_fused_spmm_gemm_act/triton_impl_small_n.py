@@ -76,10 +76,8 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     tile_m_adjm_bsr_values_offs = BLOCK_M * tile_m_crow
     offs_m_adjm = tl.arange(0, BLOCK_M)
     
-    # ------------------- Loop over K2 blocks -------------------
-    acc2 = tl.zeros((BLOCK_M, N), dtype=tl.float32)
-    
     # ------------------- Loop over K1 blocks -------------------
+    acc2 = tl.zeros((BLOCK_M, N), dtype=tl.float32)
     # Can create asymmetric work across block M, but hopefully this is okay since lot of block Ms exist since M typically large.
     for k1_block in tl.range(0, K1_TILE_M, BLOCK_K1):
         # ------------------- Compute K1 block indices and offsets -------------------
@@ -123,7 +121,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
             # ------------------- Compute GEMM -------------------
             acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
             acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
-            acc2 = tl.dot(acc1, w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
+            acc2 = tl.dot(acc1.to(w_values.dtype), w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
     
     # ------------------- Apply ReLU -------------------
     if apply_relu:
