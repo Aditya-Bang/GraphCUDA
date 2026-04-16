@@ -18,5 +18,6 @@ def test_same_matrix_bsr_print():
     bsr.values_rm = create_bsr_values_rm(bsr)
     print(bsr.crow_indices())
     print(bsr.col_indices())
-    print(bsr.values_rm)
+    print("bsr.values_rm:", bsr.values_rm)
+    print("bsr.values().flatten():", bsr.values().flatten())
 

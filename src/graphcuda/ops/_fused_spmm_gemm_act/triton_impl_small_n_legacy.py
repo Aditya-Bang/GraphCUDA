@@ -26,10 +26,10 @@ _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
         num_stages=ns,
         num_warps=nw,
     )
-    for bk1 in (32,64,128,)
-    for bk2 in (32,64,)
-    for nw in (2,4,8,)
-    for ns in (2,4,)
+    for bk1 in (32, 64, 128)
+    for bk2 in (64,)
+    for nw in (2,4,8)
+    for ns in (2,)
 ]
 
 
@@ -62,6 +62,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     BLOCK_K1: tl.constexpr,
     BLOCK_K2: tl.constexpr,
 ):
+    # TODO: ignoring K1 blocks right now, assume all just one block in K1 dim, fix later.
     # ------------------- Compute PIDS -------------------
     pid_m = tl.program_id(0)
     
@@ -74,18 +75,18 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     K1_TILE_M = tile_m_next_crow - tile_m_crow
     
     tile_m_adjm_bsr_values_offs = BLOCK_M * tile_m_crow
+    offs_k1_adjm = tl.arange(0, BLOCK_K1) # will be masked by K1_TILE_M
     offs_m_adjm = tl.arange(0, BLOCK_M)
     
-    # ------------------- Loop over K2 blocks -------------------
+    offs_adjm_bsr_cols = tl.arange(0, BLOCK_K1) # indexes we want to read from BSR col indices, will be masked by K1_TILE_M, need this because arange needs constant end value
+    offs_k1_x = tl.load(bsr_col_ptr + tile_m_crow + offs_adjm_bsr_cols, mask=offs_adjm_bsr_cols < K1_TILE_M, other=0)
+    
+    # ------------------- Loop over K2 blocks (like dense matmul) -------------------
     acc2 = tl.zeros((BLOCK_M, N), dtype=tl.float32)
     
-    # ------------------- Loop over K1 blocks -------------------
-    # Can create asymmetric work across block M, but hopefully this is okay since lot of block Ms exist since M typically large.
-    for k1_block in tl.range(0, K1_TILE_M, BLOCK_K1):
+    for k2_block in range(0, K2, BLOCK_K2):
         # ------------------- Compute K1 block indices and offsets -------------------
-        offs_k1_adjm = k1_block + tl.arange(0, BLOCK_K1) # will be masked by K1_TILE_M
-        offs_adjm_bsr_cols = k1_block + tl.arange(0, BLOCK_K1) # indexes we want to read from BSR col indices, will be masked by K1_TILE_M, need this because arange needs constant end value
-        offs_k1_x = tl.load(bsr_col_ptr + tile_m_crow + offs_adjm_bsr_cols, mask=offs_adjm_bsr_cols < K1_TILE_M, other=0)
+        offs_k2 = (k2_block + tl.arange(0, BLOCK_K2))
         
         # ------------------- Load adjm values -------------------
         adjm_values_ptrs = (
@@ -96,34 +97,29 @@ def _fused_spmm_gemm_relu_kernel_small_n(
         )
         adjm_values_mask = (offs_m[:, None] < M) & (offs_k1_adjm[None, :] < K1_TILE_M)
         adjm_values = tl.load(adjm_values_ptrs, mask=adjm_values_mask, other=0.0)
-    
-        # ------------------- Loop over K2 blocks -------------------
-        for k2_block in range(0, K2, BLOCK_K2):
-            # ------------------- Compute K2 block indices and offsets -------------------
-            offs_k2 = (k2_block + tl.arange(0, BLOCK_K2))
-            
-            # ------------------- Load x values -------------------
-            x_ptrs = (
-                x_ptr
-                + offs_k1_x[:, None] * sx_k1
-                + offs_k2[None, :] * sx_k2
-            )
-            x_mask = (offs_adjm_bsr_cols[:, None] < K1_TILE_M) & (offs_k1_x[:, None] < K1) & (offs_k2[None, :] < K2)
-            x_values = tl.load(x_ptrs, mask=x_mask, other=0.0)
-            
-            # ------------------- Load weights values -------------------
-            w_ptrs = (
-                w_ptr
-                + offs_k2[:, None] * sw_k2
-                + offs_n[None, :] * sw_n
-            )
-            w_mask = (offs_k2[:, None] < K2) & (offs_n[None, :] < N)
-            w_values = tl.load(w_ptrs, mask=w_mask, other=0.0)
-            
-            # ------------------- Compute GEMM -------------------
-            acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
-            acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
-            acc2 = tl.dot(acc1, w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
+        
+        # ------------------- Load x values -------------------
+        x_ptrs = (
+            x_ptr
+            + offs_k1_x[:, None] * sx_k1
+            + offs_k2[None, :] * sx_k2
+        )
+        x_mask = (offs_adjm_bsr_cols[:, None] < K1_TILE_M) & (offs_k1_x[:, None] < K1) & (offs_k2[None, :] < K2)
+        x_values = tl.load(x_ptrs, mask=x_mask, other=0.0)
+        
+        # ------------------- Load weights values -------------------
+        w_ptrs = (
+            w_ptr
+            + offs_k2[:, None] * sw_k2
+            + offs_n[None, :] * sw_n
+        )
+        w_mask = (offs_k2[:, None] < K2) & (offs_n[None, :] < N)
+        w_values = tl.load(w_ptrs, mask=w_mask, other=0.0)
+        
+        # ------------------- Compute GEMM -------------------
+        acc1 = tl.zeros((BLOCK_M, BLOCK_K2), dtype=tl.float32)
+        acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
+        acc2 = tl.dot(acc1, w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
     
     # ------------------- Apply ReLU -------------------
     if apply_relu:
