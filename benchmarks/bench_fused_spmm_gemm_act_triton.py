@@ -7,11 +7,10 @@ import triton.language as tl
 import triton.profiler as proton
 from typing import List, Tuple
 
+from graphcuda.bsr_rm import create_bsr_values_rm
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import dense_torch_impl, sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n as fused_spmm_gemm_relu_small_n_switch_loop
-from graphcuda.bsr_rm import create_bsr_values_rm
-from graphcuda.fused_spmm_gemm_relu import fused_spmm_gemm_relu
 
 
 # ------------------------------------------------------------
@@ -56,7 +55,6 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
 def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
     Y_ref = dense_torch_impl(adjm_dense, X, weights)
     Y_torch_sparse = sparse_torch_impl(adjm_csr, X, weights)
-    # Y_triton_naive = fused_spmm_gemm_relu(adjm_bsr, X, weights)
     Y_triton_small_n = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights)
     Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights)
 
@@ -65,9 +63,6 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
 
     passed = torch.allclose(Y_ref, Y_torch_sparse, atol=atol, rtol=rtol)
     print(f"  sparse torch impl: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_torch_sparse).max().item()}")
-    
-    # passed = torch.allclose(Y_ref, Y_triton_naive, atol=atol, rtol=rtol)
-    # print(f"  triton naive: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_naive).max().item()}")
 
     passed = torch.allclose(Y_ref, Y_triton_small_n, atol=atol, rtol=rtol)
     print(f"  triton small n: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n).max().item()}")
@@ -75,7 +70,6 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
     passed = torch.allclose(Y_ref, Y_triton_small_n_switch_loop, atol=atol, rtol=rtol)
     print(f"  triton small n switch loop: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_switch_loop).max().item()}")
     
-
 
 def bench_fn(label, reps, warmup_reps, fn, *args):
     
