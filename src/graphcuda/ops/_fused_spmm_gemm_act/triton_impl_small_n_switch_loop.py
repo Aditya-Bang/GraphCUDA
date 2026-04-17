@@ -10,6 +10,7 @@ Inputs:
     adjm: torch.Tensor. Must be a BSR tensor. Shape (M, K1)
     X: torch.Tensor. Must be a dense tensor. Shape (K1, K2)
     weights: torch.Tensor. Must be a dense tensor. Shape (K2, N)
+    bias: Optional torch.Tensor. Applied before ReLU when provided. Shape (N,) or (1, N).
     apply_relu: bool. Whether to apply ReLU to the output.
 
 Outputs:
@@ -51,12 +52,15 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     bsr_values_ptr, # BSR adjacency (M, K1)
     bsr_crow_ptr,
     bsr_col_ptr,
+    bias_ptr,
     # strides
     sx_k1, sx_k2,
     sw_k2, sw_n,
     so_m, so_n,
+    sb_n,
     # flags
     apply_relu: tl.constexpr,
+    has_bias: tl.constexpr,
     # tile sizes
     BLOCK_M: tl.constexpr,
     BLOCK_K1: tl.constexpr,
@@ -124,6 +128,11 @@ def _fused_spmm_gemm_relu_kernel_small_n(
             acc1 = tl.dot(adjm_values, x_values, acc=acc1, input_precision="ieee", out_dtype=tl.float32)
             acc2 = tl.dot(acc1.to(w_values.dtype), w_values, acc=acc2, input_precision="ieee", out_dtype=tl.float32)
     
+    if has_bias:
+        bias_ptrs = bias_ptr + offs_n * sb_n
+        bias_vals = tl.load(bias_ptrs)
+        acc2 = acc2 + bias_vals[None, :]
+    
     # ------------------- Apply ReLU -------------------
     if apply_relu:
         acc2 = tl.maximum(acc2, 0.0)
@@ -141,6 +150,7 @@ def fused_spmm_gemm_relu_small_n(
     adjm: torch.Tensor,
     X: torch.Tensor,
     weights: torch.Tensor,
+    bias: torch.Tensor | None = None,
     apply_relu: bool = True,
 ) -> torch.Tensor:
     # ------------------- 1. Input Assertions -------------------
@@ -171,7 +181,23 @@ def fused_spmm_gemm_relu_small_n(
     dtype = X.dtype
     assert X.dtype == weights.dtype, "X and weights must have the same dtype"
     
-    # f. Extra bsr checks
+    # f. bias checks
+    has_bias = bias is not None
+    bias_stride_n = 0
+    if has_bias:
+        assert not bias.is_sparse, "bias must be a dense tensor"
+        assert bias.device == device, "bias must be on the same device as adjm"
+        assert bias.dtype == dtype, "bias must have the same dtype as X and weights"
+        if bias.dim() == 1:
+            assert bias.shape[0] == N, f"bias 1D length must be {N}, got {bias.shape[0]}"
+            bias_stride_n = bias.stride(0)
+        elif bias.dim() == 2:
+            assert bias.shape == (1, N), f"bias 2D shape must be (1, {N}), got {tuple(bias.shape)}"
+            bias_stride_n = bias.stride(1)
+        else:
+            raise AssertionError("bias must be 1D or 2D")
+    
+    # g. extra bsr checks
     vals = adjm.values()
     BLOCK_M, adjm_bk = int(vals.shape[-2]), int(vals.shape[-1])
     assert BLOCK_M > 0, "BLOCK_M must be positive"
@@ -191,8 +217,12 @@ def fused_spmm_gemm_relu_small_n(
         M, K1, K2, N,
         X, weights, Y,
         adjm.values_rm, adjm.crow_indices(), adjm.col_indices(),
-        X.stride(0), X.stride(1), weights.stride(0), weights.stride(1), Y.stride(0), Y.stride(1),
+        bias if has_bias else 0,
+        X.stride(0), X.stride(1), weights.stride(0),
+        weights.stride(1), Y.stride(0), Y.stride(1),
+        bias_stride_n,
         apply_relu,
+        has_bias,
         BLOCK_M,
     )
     return Y

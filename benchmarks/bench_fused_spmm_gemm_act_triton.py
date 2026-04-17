@@ -5,8 +5,6 @@ import torch
 import triton
 import triton.language as tl
 import triton.profiler as proton
-from typing import List, Tuple
-
 from graphcuda.bsr_rm import create_bsr_values_rm
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import dense_torch_impl, sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
@@ -37,7 +35,7 @@ def show_profile(profile_name):
 # ------------------------------------------------------------
 # Testing Utilities
 # ------------------------------------------------------------
-def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_density: float = 0.05):
+def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_density: float = 0.05, use_bias: bool = False):
     device = torch.device("cuda")
     mask = torch.rand((M, K1), device=device) < adj_density
     adjm_dense = torch.randn(M, K1, dtype=dtype, device=device)
@@ -50,13 +48,15 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     adjm_bsr.values_rm = create_bsr_values_rm(adjm_bsr)
     adjm_csr = adjm_dense.to_sparse_csr()
     
-    return adjm_dense, adjm_bsr, adjm_csr, X, weights
+    bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
+    return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
 
-def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights):
-    Y_ref = dense_torch_impl(adjm_dense, X, weights)
-    Y_torch_sparse = sparse_torch_impl(adjm_csr, X, weights)
-    Y_triton_small_n = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights)
-    Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights)
+
+def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias):
+    Y_ref = dense_torch_impl(adjm_dense, X, weights, bias)
+    Y_torch_sparse = sparse_torch_impl(adjm_csr, X, weights, bias)
+    Y_triton_small_n = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias)
+    Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights, bias)
 
     atol = 1e-2
     rtol = 1e-2
@@ -118,22 +118,27 @@ if __name__ == "__main__":
         default=0.05,
         help="Approximate fraction of nonzero entries in the (dense) adjacency before BSR/CSR conversion.",
     )
+    parser.add_argument(
+        "--bias",
+        action="store_true",
+        help="Use a random (1, N) bias in reference and Triton implementations.",
+    )
     args = parser.parse_args()
     dtype = parse_dtype(args.dtype)
     
     torch.manual_seed(0)
 
     # -------------- Make inputs --------------
-    adjm_dense, adjm_bsr, adjm_csr, X, weights = make_inputs(
-        args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density
+    adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_inputs(
+        args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density, use_bias=args.bias
     )
 
     # -------------- Validate --------------
-    validate(adjm_dense, adjm_bsr, adjm_csr, X, weights)
+    validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias)
     
     # -------------- Benchmark --------------
-    bench_fn("dense_torch_impl", args.reps, args.warmup_reps, torch.compile(dense_torch_impl, dynamic=True), adjm_dense, X, weights)
-    bench_fn("sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(sparse_torch_impl, dynamic=True), adjm_csr, X, weights)
+    bench_fn(f"dense_torch_impl", args.reps, args.warmup_reps, torch.compile(dense_torch_impl, dynamic=True), adjm_dense, X, weights, bias)
+    bench_fn(f"sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias)
     # bench_fn("fused_spmm_gemm_relu", args.reps, args.warmup_reps, fused_spmm_gemm_relu, adjm_bsr, X, weights)
-    bench_fn("fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights)
-    bench_fn("fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights)
+    bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias)
+    bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias)
