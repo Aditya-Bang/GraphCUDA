@@ -53,10 +53,10 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
 
 
 def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias):
-    Y_ref = dense_torch_impl(adjm_dense, X, weights, bias)
-    Y_torch_sparse = sparse_torch_impl(adjm_csr, X, weights, bias)
-    Y_triton_small_n = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias)
-    Y_triton_small_n_switch_loop = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights, bias)
+    Y_ref, _ = dense_torch_impl(adjm_dense, X, weights, bias)
+    Y_torch_sparse, _ = sparse_torch_impl(adjm_csr, X, weights, bias)
+    Y_triton_small_n, _ = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias)
+    Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights, bias)
 
     atol = 1e-2
     rtol = 1e-2

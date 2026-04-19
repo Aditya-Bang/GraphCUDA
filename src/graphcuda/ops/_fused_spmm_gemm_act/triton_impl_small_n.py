@@ -14,7 +14,9 @@ Inputs:
     apply_relu: bool. Whether to apply ReLU to the output.
 
 Outputs:
-    Y: torch.Tensor. Must be a dense tensor. Shape (M, N)
+    Y: torch.Tensor. Dense output, shape (M, N).
+    relu_mask: torch.Tensor or None. If apply_relu is True, a bool tensor of shape (M, N)
+        with relu_mask[i,j] == (pre-ReLU output at (i,j) > 0). Otherwise None.
 
 Each triton program computes BLOCK_M x N of the output. Tile sizes BLOCK_K1, BLOCK_K2 are chosen by triton.autotune.
 
@@ -49,6 +51,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     x_ptr, # dense X (K1, K2)
     w_ptr, # dense weights (K2, N)
     out_ptr, # dense output (M, N)
+    relu_mask_ptr, # dense uint8 mask (M, N), only written when apply_relu
     bsr_values_ptr, # BSR adjacency (M, K1)
     bsr_crow_ptr,
     bsr_col_ptr,
@@ -57,6 +60,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     sx_k1, sx_k2,
     sw_k2, sw_n,
     so_m, so_n,
+    sm_m, sm_n,
     sb_n,
     # flags
     apply_relu: tl.constexpr,
@@ -134,6 +138,13 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     
     # ------------------- Apply ReLU -------------------
     if apply_relu:
+        relu_mask_vals = (acc2 > 0.0)
+        relu_mask_ptrs = (
+            relu_mask_ptr
+            + offs_m[:, None] * sm_m
+            + offs_n[None, :] * sm_n
+        )
+        tl.store(relu_mask_ptrs, relu_mask_vals)
         acc2 = tl.maximum(acc2, 0.0)
     
     # ------------------- Write back to output -------------------
@@ -142,8 +153,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
         + offs_m[:, None] * so_m
         + offs_n[None, :] * so_n
     )
-    out_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
-    tl.store(out_ptrs, acc2, mask=out_mask)
+    tl.store(out_ptrs, acc2)
 
 def fused_spmm_gemm_relu_small_n(
     adjm: torch.Tensor,
@@ -151,7 +161,7 @@ def fused_spmm_gemm_relu_small_n(
     weights: torch.Tensor,
     bias: torch.Tensor | None = None,
     apply_relu: bool = True,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor | None]:
     # ------------------- 1. Input Assertions -------------------
     # a. dims
     assert X.dim() == 2, "X must be 2D"
@@ -204,6 +214,11 @@ def fused_spmm_gemm_relu_small_n(
     assert adjm.values_rm.dim() == 1, "BSR values row major flattened must be 1D"
     nrow_blocks = (M + BLOCK_M - 1) // BLOCK_M
     assert adjm.crow_indices().numel() == nrow_blocks + 1, "unexpected BSR crow_indices length"
+    
+    # h. relu mask
+    relu_mask = None
+    if apply_relu:
+        relu_mask = torch.empty((M, N), device=device, dtype=torch.bool)
 
     # ------------------- 2. Triton Kernel Launcher -------------------
     Y = torch.empty((M, N), device=device, dtype=dtype)
@@ -215,13 +230,16 @@ def fused_spmm_gemm_relu_small_n(
     _fused_spmm_gemm_relu_kernel_small_n[grid](
         M, K1, K2, N,
         X, weights, Y,
+        relu_mask if relu_mask is not None else 0,
         adjm.values_rm, adjm.crow_indices(), adjm.col_indices(),
         bias if has_bias else 0,
         X.stride(0), X.stride(1), weights.stride(0),
         weights.stride(1), Y.stride(0), Y.stride(1),
+        relu_mask.stride(0) if relu_mask is not None else 0,
+        relu_mask.stride(1) if relu_mask is not None else 0,
         bias_stride_n,
         apply_relu,
         has_bias,
         BLOCK_M,
     )
-    return Y
+    return Y, relu_mask
