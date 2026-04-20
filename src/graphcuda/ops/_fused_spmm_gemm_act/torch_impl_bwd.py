@@ -1,7 +1,7 @@
 import torch
 
 
-def fused_spmm_gemm_relu_torch_backward(
+def torch_backward(
     grad_output: torch.Tensor,
     adj: torch.Tensor,
     X: torch.Tensor,

@@ -8,7 +8,7 @@ import triton.profiler as proton
 from graphcuda.bsr_rm import create_bsr_values_rm
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import dense_torch_impl, sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
+from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n as fused_spmm_gemm_relu_small_n_switch_loop
 
 
 # ------------------------------------------------------------
@@ -55,8 +55,10 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
 def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool = True):
     Y_ref, _ = dense_torch_impl(adjm_dense, X, weights, bias, apply_relu)
     Y_torch_sparse, _ = sparse_torch_impl(adjm_csr, X, weights, bias, apply_relu)
-    Y_triton_small_n, _ = fused_spmm_gemm_relu_small_n(adjm_bsr.shape[0], adjm_bsr.shape[1], adjm_bsr.values().shape[-2], adjm_bsr.values_rm, adjm_bsr.crow_indices(), adjm_bsr.col_indices(), X, weights, bias, apply_relu)
-    Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr.shape[0], adjm_bsr.shape[1], adjm_bsr.values().shape[-2], adjm_bsr.values_rm, adjm_bsr.crow_indices(), adjm_bsr.col_indices(), X, weights, bias, apply_relu)
+    Y_triton_small_n, _ = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias, apply_relu)
+    Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(
+        adjm_bsr, X, weights, bias, apply_relu
+    )
 
     atol = 1e-2
     rtol = 1e-2
@@ -144,5 +146,5 @@ if __name__ == "__main__":
     # -------------- Benchmark --------------
     bench_fn(f"dense_torch_impl", args.reps, args.warmup_reps, torch.compile(dense_torch_impl, dynamic=True), adjm_dense, X, weights, bias, args.apply_relu)
     bench_fn(f"sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias, args.apply_relu)
-    bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr.shape[0], adjm_bsr.shape[1], adjm_bsr.values().shape[-2], adjm_bsr.values_rm, adjm_bsr.crow_indices(), adjm_bsr.col_indices(), X, weights, bias, args.apply_relu)
-    bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr.shape[0], adjm_bsr.shape[1], adjm_bsr.values().shape[-2], adjm_bsr.values_rm, adjm_bsr.crow_indices(), adjm_bsr.col_indices(), X, weights, bias, args.apply_relu)
+    bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias, args.apply_relu)
+    bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias, args.apply_relu)
