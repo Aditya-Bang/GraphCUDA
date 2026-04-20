@@ -8,8 +8,7 @@ def torch_backward(
     weights: torch.Tensor,
     bias: torch.Tensor | None,
     relu_mask: torch.Tensor | None,
-    *,
-    activation: str = "relu",
+    apply_relu: bool,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     """
     Backward for fused ``Y = relu(A @ X @ W + bias)`` (or without relu / bias), matching
@@ -20,9 +19,9 @@ def torch_backward(
     ``grad_bias`` is None if ``bias`` was None. Adjacency is fixed (no ``grad_adj``).
     """
     # ------------------- Pre-activation gradient -------------------
-    if activation == "relu":
+    if apply_relu:
         if relu_mask is None:
-            raise ValueError("relu_mask is required when activation is 'relu'")
+            raise ValueError("relu_mask is required when apply_relu is True")
         g = grad_output * relu_mask.to(grad_output.dtype)
     else:
         g = grad_output
