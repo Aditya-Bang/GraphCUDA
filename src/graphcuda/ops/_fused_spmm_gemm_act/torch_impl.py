@@ -1,6 +1,6 @@
 import torch
 
-def dense_torch_impl(
+def fused_spmm_gemm_relu_dense_torch_impl(
     adjm_dense: torch.Tensor,
     X: torch.Tensor,
     weights: torch.Tensor,
@@ -23,7 +23,7 @@ def dense_torch_impl(
         Y = torch.relu(Y)
     return Y, relu_mask
 
-def sparse_torch_impl(
+def fused_spmm_gemm_relu_sparse_torch_impl(
     adjm_sparse: torch.Tensor,
     X: torch.Tensor,
     weights: torch.Tensor,

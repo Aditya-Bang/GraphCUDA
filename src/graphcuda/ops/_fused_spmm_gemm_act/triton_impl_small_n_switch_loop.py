@@ -41,7 +41,7 @@ _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
     key=["M", "N", "K1", "K2"],
 )
 @triton.jit
-def _fused_spmm_gemm_relu_kernel_small_n(
+def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     # sizes
     M: tl.constexpr,
     K1: tl.constexpr,
@@ -156,7 +156,7 @@ def _fused_spmm_gemm_relu_kernel_small_n(
     )
     tl.store(out_ptrs, acc2)
 
-def fused_spmm_gemm_relu_small_n(
+def fused_spmm_gemm_relu_small_n_switch_loop(
     adjm: torch.Tensor,
     X: torch.Tensor,
     weights: torch.Tensor,
@@ -228,7 +228,7 @@ def fused_spmm_gemm_relu_small_n(
         triton.cdiv(M, BLOCK_M),
     )
 
-    _fused_spmm_gemm_relu_kernel_small_n[grid](
+    fused_spmm_gemm_relu_small_n_switch_loop_kernel[grid](
         M, K1, K2, N,
         X, weights, Y,
         relu_mask if relu_mask is not None else 0,

@@ -41,7 +41,7 @@ _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
     key=["M", "N", "K1", "K2"],
 )
 @triton.jit
-def _fused_spmm_gemm_relu_kernel_small_n(
+def fused_spmm_gemm_relu_small_n_kernel(
     # sizes
     M: tl.constexpr,
     K1: tl.constexpr,
@@ -227,7 +227,7 @@ def fused_spmm_gemm_relu_small_n(
         triton.cdiv(M, BLOCK_M),
     )
 
-    _fused_spmm_gemm_relu_kernel_small_n[grid](
+    fused_spmm_gemm_relu_small_n_kernel[grid](
         M, K1, K2, N,
         X, weights, Y,
         relu_mask if relu_mask is not None else 0,

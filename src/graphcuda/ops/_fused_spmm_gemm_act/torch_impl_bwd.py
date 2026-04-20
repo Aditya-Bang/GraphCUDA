@@ -1,7 +1,7 @@
 import torch
 
 
-def torch_backward(
+def spmm_gemm_relu_backward_torch_impl(
     grad_output: torch.Tensor,
     adj: torch.Tensor,
     X: torch.Tensor,
@@ -12,7 +12,7 @@ def torch_backward(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     """
     Backward for fused ``Y = relu(A @ X @ W + bias)`` (or without relu / bias), matching
-    :func:`dense_torch_impl` / :func:`sparse_torch_impl`.
+    :func:`fused_spmm_gemm_relu_dense_torch_impl` / :func:`fused_spmm_gemm_relu_sparse_torch_impl`.
 
     ``adj`` may be dense ``(M, K1)`` or a sparse tensor (e.g. CSR); behavior follows
     ``@`` vs :func:`torch.sparse.mm`. Returns ``(grad_X, grad_weights, grad_bias)``;
