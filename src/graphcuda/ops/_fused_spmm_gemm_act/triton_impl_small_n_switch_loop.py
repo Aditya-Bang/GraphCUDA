@@ -18,7 +18,9 @@ Outputs:
     relu_mask: torch.Tensor or None. If apply_relu is True, a bool tensor of shape (M, N)
         with relu_mask[i,j] == (pre-ReLU output at (i,j) > 0). Otherwise None.
 
-Each triton program computes BLOCK_M x N of the output. Tile sizes BLOCK_K1, BLOCK_K2 are chosen by triton.autotune.
+Each triton program computes BLOCK_M x N of the output.
+BLOCK_N is used to get power of 2 just greater than or equal to N, since tl.arange needs a end value as power of 2.
+Tile sizes BLOCK_K1, BLOCK_K2 are chosen by triton.autotune.
 
 TODO: Shared memory calculations for the op to tune BLOCK_K1, BLOCK_K2.
 """
@@ -67,6 +69,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     has_bias: tl.constexpr,
     # tile sizes
     BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
     BLOCK_K1: tl.constexpr,
     BLOCK_K2: tl.constexpr,
 ):
@@ -75,7 +78,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     
     # ------------------- Compute Logical Offsets -------------------
     offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M))
-    offs_n = (tl.arange(0, N))
+    offs_n = (tl.arange(0, BLOCK_N))
     
     tile_m_crow = tl.load(bsr_crow_ptr + pid_m)
     tile_m_next_crow = tl.load(bsr_crow_ptr + pid_m + 1)
@@ -86,7 +89,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     
 
     # ------------------- Loop over K2 blocks -------------------
-    acc2 = tl.zeros((BLOCK_M, N), dtype=tl.float32)
+    acc2 = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
     for k2_block in range(0, K2, BLOCK_K2):
         # ------------------- Compute K2 block indices and offsets -------------------
         offs_k2 = (k2_block + tl.arange(0, BLOCK_K2))
@@ -134,10 +137,12 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     
     if has_bias:
         bias_ptrs = bias_ptr + offs_n * sb_n
-        bias_vals = tl.load(bias_ptrs)
+        bias_mask = (offs_n < N)
+        bias_vals = tl.load(bias_ptrs, mask=bias_mask, other=0.0)
         acc2 = acc2 + bias_vals[None, :]
     
     # ------------------- Apply ReLU -------------------
+    out_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
     if apply_relu:
         relu_mask_vals = (acc2 > 0.0)
         relu_mask_ptrs = (
@@ -145,7 +150,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
             + offs_m[:, None] * sm_m
             + offs_n[None, :] * sm_n
         )
-        tl.store(relu_mask_ptrs, relu_mask_vals)
+        tl.store(relu_mask_ptrs, relu_mask_vals, mask=out_mask)
         acc2 = tl.maximum(acc2, 0.0)
     
     # ------------------- Write back to output -------------------
@@ -154,7 +159,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
         + offs_m[:, None] * so_m
         + offs_n[None, :] * so_n
     )
-    tl.store(out_ptrs, acc2)
+    tl.store(out_ptrs, acc2, mask=out_mask)
 
 # BUG: can't wrap this with triton op because triton op checks for each input tensor, it's .storage() method,
 # which doesn't exist for sparse tensors.
@@ -222,6 +227,9 @@ def fused_spmm_gemm_relu_small_n_switch_loop(
     relu_mask = None
     if apply_relu:
         relu_mask = torch.empty((M, N), device=device, dtype=torch.bool)
+    
+    # i. Get BLOCK_N
+    BLOCK_N = triton.next_power_of_2(N)
 
     # ------------------- 2. Triton Kernel Launcher -------------------
     Y = torch.empty((M, N), device=device, dtype=dtype)
@@ -244,5 +252,6 @@ def fused_spmm_gemm_relu_small_n_switch_loop(
         apply_relu,
         has_bias,
         BLOCK_M,
+        BLOCK_N,
     )
     return Y, relu_mask
