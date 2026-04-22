@@ -5,7 +5,7 @@ import torch
 import triton
 import triton.language as tl
 import triton.profiler as proton
-from graphcuda.utils.bsr_rm import create_bsr_values_rm
+from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
@@ -44,8 +44,7 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     X = torch.randn(K1, K2, dtype=dtype, device=device)
     weights = torch.randn(K2, N, dtype=dtype, device=device)
     
-    adjm_bsr = adjm_dense.to_sparse_bsr(blocksize=(16, 1))
-    adjm_bsr.values_rm = create_bsr_values_rm(adjm_bsr)
+    adjm_bsr = to_sparse_bsr_rm(adjm_dense)
     adjm_csr = adjm_dense.to_sparse_csr()
     
     bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None

@@ -27,3 +27,27 @@ def create_bsr_values_rm(bsr: torch.Tensor) -> torch.Tensor:
         values_rm.append(chunk.transpose(0, 1).contiguous().reshape(-1))
     
     return torch.cat(values_rm, dim=0).detach()
+
+def choose_optimal_block_row_size(dense_matrix: torch.Tensor) -> int:
+    """
+    TODO: Implement a heuristic to choose the optimal block row size for the given dense matrix.
+    Must be a multiple of 16.
+    """
+    return 16
+
+
+def to_sparse_bsr_rm(dense_matrix: torch.Tensor) -> torch.Tensor:
+    BLOCK_ROW_SIZE = choose_optimal_block_row_size(dense_matrix)
+    assert BLOCK_ROW_SIZE % 16 == 0
+    assert dense_matrix.dim() == 2
+    
+    m, n = dense_matrix.shape
+    
+    m_ceil = (m + BLOCK_ROW_SIZE - 1) // BLOCK_ROW_SIZE * BLOCK_ROW_SIZE
+    
+    dense_matrix = torch.nn.functional.pad(dense_matrix, (0, 0, 0, m_ceil - m))
+    bsr = dense_matrix.to_sparse_bsr(blocksize=(BLOCK_ROW_SIZE, 1))
+    bsr.values_rm = create_bsr_values_rm(bsr)
+    bsr.pre_padded_shape = (m, n) # need to set custom shape here because shape is not overrideable in tensor.
+
+    return bsr

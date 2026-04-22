@@ -24,4 +24,5 @@ gcn_conv_layer = GraphCUDAGCNConv(
     apply_relu=True,
 ).to(device)
 
-gcn_conv_layer(data.x, data.edge_index)
+out = gcn_conv_layer(data.x, data.edge_index)
+print(out.shape)

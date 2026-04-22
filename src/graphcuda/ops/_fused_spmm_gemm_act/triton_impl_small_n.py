@@ -179,9 +179,11 @@ def fused_spmm_gemm_relu_small_n(
     assert not weights.is_sparse, "weights must be a dense tensor"
     assert X.is_contiguous(), "X must be contiguous"
     assert weights.is_contiguous(), "weights must be contiguous"
+    assert hasattr(adjm, "pre_padded_shape"), "adjm must have pre_padded_shape attribute, construct it via to_sparse_bsr_rm"
+    assert hasattr(adjm, "values_rm"), "adjm must have values_rm attribute, construct it via to_sparse_bsr_rm"
     
     # c. shapes
-    M, K1, K2, N = adjm.shape[0], adjm.shape[1], weights.shape[0], weights.shape[1]
+    M, K1, K2, N = adjm.pre_padded_shape[0], adjm.pre_padded_shape[1], weights.shape[0], weights.shape[1]
     assert K1 == X.shape[0], f"X.shape[0] ({X.shape[0]}) must match adjm.shape[1] ({K1})"
     assert K2 == X.shape[1], f"X.shape[1] ({X.shape[1]}) must match weights.shape[0] ({K2})"
     

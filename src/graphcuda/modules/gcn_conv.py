@@ -1,7 +1,7 @@
 import torch
 from typing import Optional
 
-from graphcuda.utils.bsr_rm import create_bsr_values_rm
+from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
@@ -70,7 +70,6 @@ class GCNConv(torch.nn.Module):
         self.normalize = normalize
         self.apply_relu = apply_relu
         
-        self._cached_edge_index = None
         self._cached_adjm_bsr_rm = None
         self._cached_adjm_csr = None
         
@@ -93,8 +92,8 @@ class GCNConv(torch.nn.Module):
                              f"edge_weight yet.")
         
         # copied preprocessing from torch_geometric.nn.conv.gcn_conv.GCNConv.forward
-        if self.normalize:
-            if self._cached_edge_index is None:
+        if self._cached_adjm_bsr_rm is None:
+            if self.normalize:
                 edge_index, edge_weight = gcn_norm(
                     edge_index=edge_index,
                     edge_weight=edge_weight,
@@ -104,19 +103,23 @@ class GCNConv(torch.nn.Module):
                     flow="source_to_target", # TODO: add self.flow param
                     dtype=x.dtype
                 )
-                if self.cached:
-                    self._cached_edge_index = edge_index
-            else:
-                edge_index = self._cached_edge_index
+            # from edge_index, create adjm_bsr_rm and adjm_csr
+            dense_adj = to_dense_adj(edge_index, edge_attr=edge_weight, max_num_nodes=x.size(-2))[0]
+            adjm_bsr_rm = to_sparse_bsr_rm(dense_adj)
+            adjm_csr = dense_adj.to_sparse_csr()
 
-        # from edge_index, create adjm_bsr_rm and adjm_csr
-        dense_adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
-        adjm_bsr_rm = dense_adj.to_sparse_bsr(blocksize=(16, 1))
-        adjm_bsr_rm.values_rm = create_bsr_values_rm(adjm_bsr_rm)
-        adjm_csr = dense_adj.to_sparse_csr()
-    
+            if self.cached:
+                self._cached_adjm_bsr_rm = adjm_bsr_rm
+                self._cached_adjm_csr = adjm_csr
+        else:
+            adjm_bsr_rm = self._cached_adjm_bsr_rm
+            adjm_csr = self._cached_adjm_csr
+
         out = _GCNConvFunction.apply(adjm_bsr_rm, adjm_csr, x, self.weights, self.bias, self.apply_relu)
 
         return out
     
-    
+        # TODO:
+        # figure out padding for adjm, and input x
+        # block row as prop of this class, function to figure out optimal block row size, must be mult of 16, give 16 for now.
+        # add pytest for gcn conv forward correctly computed compared to pyg, pass in same weights, test with same data, my fixtures for cora dataset.
