@@ -231,7 +231,7 @@ def fused_spmm_gemm_relu_small_n_switch_loop(
         relu_mask = torch.empty((M, N), device=device, dtype=torch.bool)
     
     # i. Get BLOCK_N
-    BLOCK_N = triton.next_power_of_2(N)
+    BLOCK_N = max(triton.next_power_of_2(N), 16) # must be at least 16 on sm80+.
 
     # ------------------- 2. Triton Kernel Launcher -------------------
     Y = torch.empty((M, N), device=device, dtype=dtype)
