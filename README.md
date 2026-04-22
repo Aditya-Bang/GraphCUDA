@@ -132,6 +132,12 @@ Benchmark Summary
 
 ## TODO
 
+        # TODO:
+        # maybe make custom class for my tensor bsr modified, not necessary tho.
+        # block row as prop of this class, function to figure out optimal block row size, must be mult of 16, give 16 for now.
+        # add pytest for gcn conv forward correctly computed compared to pyg, pass in same weights, test with same data, my fixtures for cora dataset.
+
+
 - Custom sparse adjacency CUDA memory implementation
 - More optimized GCN and message-passing kernels
 - Wavelet GNN and other advanced architectures

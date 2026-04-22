@@ -118,8 +118,3 @@ class GCNConv(torch.nn.Module):
         out = _GCNConvFunction.apply(adjm_bsr_rm, adjm_csr, x, self.weights, self.bias, self.apply_relu)
 
         return out
-    
-        # TODO:
-        # figure out padding for adjm, and input x
-        # block row as prop of this class, function to figure out optimal block row size, must be mult of 16, give 16 for now.
-        # add pytest for gcn conv forward correctly computed compared to pyg, pass in same weights, test with same data, my fixtures for cora dataset.
