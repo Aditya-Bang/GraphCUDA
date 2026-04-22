@@ -156,6 +156,8 @@ def fused_spmm_gemm_relu_small_n_switch_loop_kernel(
     )
     tl.store(out_ptrs, acc2)
 
+# BUG: can't wrap this with triton op because triton op checks for each input tensor, it's .storage() method,
+# which doesn't exist for sparse tensors.
 def fused_spmm_gemm_relu_small_n_switch_loop(
     adjm: torch.Tensor,
     X: torch.Tensor,
