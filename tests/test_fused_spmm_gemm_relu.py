@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from graphcuda.bsr_rm import create_bsr_values_rm
-from graphcuda.fused_spmm_gemm_relu import fused_spmm_gemm_relu
+from graphcuda.utils.bsr_rm import create_bsr_values_rm
+from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
@@ -19,7 +19,7 @@ def test_fused_spmm_gemm_relu_identity_16():
     X = torch.randn(n, n, dtype=torch.float32, device=device)
     weights = torch.randn(n, n, dtype=torch.float32, device=device)
 
-    out = fused_spmm_gemm_relu(adjm, X, weights, apply_relu=True)
+    out = fused_spmm_gemm_relu_small_n(adjm, X, weights, apply_relu=True)
     expected = torch.relu(X @ weights)
 
     torch.testing.assert_close(out, expected, rtol=1e-4, atol=1e-5)

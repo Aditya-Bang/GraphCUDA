@@ -1,5 +1,5 @@
 import torch
-from graphcuda.bsr_rm import create_bsr_values_rm
+from graphcuda.utils.bsr_rm import create_bsr_values_rm
 
 def test_same_matrix_bsr_print():
     """Same 4x4 matrix as BSR(2,2); print crow, col, values (run: pytest -s)."""

@@ -1,7 +1,7 @@
 import torch
 from typing import Optional
 
-from graphcuda.bsr_rm import create_bsr_values_rm
+from graphcuda.utils.bsr_rm import create_bsr_values_rm
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
@@ -118,3 +118,5 @@ class GCNConv(torch.nn.Module):
         out = _GCNConvFunction.apply(adjm_bsr_rm, adjm_csr, x, self.weights, self.bias, self.apply_relu)
 
         return out
+    
+    
