@@ -2,6 +2,7 @@ import torch
 from typing import Optional
 
 from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
+from graphcuda.utils.inits import glorot
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
@@ -74,11 +75,14 @@ class GCNConv(torch.nn.Module):
         self._cached_adjm_csr = None
         
         self.weights = torch.nn.Parameter(torch.empty(in_channels, out_channels))
+        glorot(self.weights)
         
         if bias:
             self.bias = torch.nn.Parameter(torch.empty(out_channels))
+            self.bias.data.zero_()
         else:
             self.register_parameter('bias', None)
+
     
     def forward(
         self,
