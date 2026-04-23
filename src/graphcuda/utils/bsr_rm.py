@@ -15,6 +15,32 @@ def create_bsr_values_rm(bsr: torch.Tensor) -> torch.Tensor:
 
     crow = bsr.crow_indices()
     vals = bsr.values()
+    # print(vals.shape)
+    # print(crow.shape)
+    # print(bsr.col_indices().shape)
+    # print(crow)
+    # crow_list = crow.detach().cpu().tolist()
+    # if len(crow_list) >= 2:
+    #     diffs = [crow_list[i + 1] - crow_list[i] for i in range(len(crow_list) - 1)]
+    #     for i, d in enumerate(diffs):
+    #         print(f"crow[{i + 1}] - crow[{i}] = {d}")
+    #     print(f"smallest crow diff: {min(diffs)}, largest crow diff: {max(diffs)}")
+    #     le16 = sum(1 for d in diffs if d <= 16)
+    #     b17_32 = sum(1 for d in diffs if 17 <= d <= 32)
+    #     b33_64 = sum(1 for d in diffs if 33 <= d <= 64)
+    #     b65_128 = sum(1 for d in diffs if 65 <= d <= 128)
+    #     b129_256 = sum(1 for d in diffs if 129 <= d <= 256)
+    #     ge257 = sum(1 for d in diffs if d >= 257)
+    #     print("crow diff distribution (counts):")
+    #     print(f"  <= 16: {le16}")
+    #     print(f"  17-32 (inclusive): {b17_32}")
+    #     print(f"  33-64 (inclusive): {b33_64}")
+    #     print(f"  65-128 (inclusive): {b65_128}")
+    #     print(f"  129-256 (inclusive): {b129_256}")
+    #     print(f"  >= 257: {ge257}")
+    #     print(f"  (sum check, should equal #row-blocks {len(diffs)}): {le16 + b17_32 + b33_64 + b65_128 + b129_256 + ge257}")
+    # else:
+    #     print("crow_indices: too short to form diffs", crow_list)
     block_rows, block_cols = vals.shape[-2:]
     if block_cols != 1:
         raise ValueError(f"expected blocksize (b, 1), got ({block_rows}, {block_cols})")

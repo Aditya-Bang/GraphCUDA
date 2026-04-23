@@ -31,7 +31,7 @@ _FUSED_SPMM_GEMM_RELU_AUTOTUNE_CONFIGS = [
         num_stages=ns,
         num_warps=nw,
     )
-    for bk1 in (32,64,128,)
+    for bk1 in (32,64,128,256,)
     for bk2 in (32,64,)
     for nw in (2,4,8,)
     for ns in (2,4,)

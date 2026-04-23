@@ -1,7 +1,9 @@
+import os
 import argparse
 from contextlib import contextmanager
 
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
 import triton.profiler as proton
@@ -9,6 +11,10 @@ from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from graphcuda.ops._fused_spmm_gemm_act.torch_impl import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
+
+from torch_geometric.datasets import Planetoid
+from torch_geometric.nn.conv.gcn_conv import gcn_norm
+from torch_geometric.utils import to_dense_adj
 
 
 # ------------------------------------------------------------
@@ -51,6 +57,42 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
 
 
+def make_cora_inputs(dtype: torch.dtype, use_bias: bool = False):
+    device = torch.device("cuda")
+    dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data")), name='Cora')
+    data = dataset[0]
+    data = data.to(device)
+    x = data.x.to(dtype=dtype)
+    k2 = x.shape[1]
+    k2_pad = (k2 + 15) // 16 * 16
+    if k2_pad > k2:
+        x = F.pad(x, (0, k2_pad - k2))
+    edge_index = data.edge_index
+    edge_index, edge_weight = gcn_norm(
+        edge_index=edge_index,
+        edge_weight=None,
+        num_nodes=x.size(-2),
+        improved=False,
+        add_self_loops=True,
+        flow="source_to_target",
+        dtype=x.dtype,
+    )
+    adjm_dense = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
+    adjm_bsr = to_sparse_bsr_rm(adjm_dense)
+    adjm_csr = adjm_dense.to_sparse_csr()
+    
+    M = adjm_dense.shape[0]
+    K1 = adjm_dense.shape[1]
+    K2 = x.shape[1]
+    N = 16
+    
+    weights = torch.randn(K2, N, dtype=dtype, device=device)
+    bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
+    
+    print(x.shape, weights.shape)
+    return adjm_dense, adjm_bsr, adjm_csr, x, weights, bias
+
+
 def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool = True):
     Y_ref, _ = fused_spmm_gemm_relu_dense_torch_impl(adjm_dense, X, weights, bias, apply_relu)
     Y_torch_sparse, _ = fused_spmm_gemm_relu_sparse_torch_impl(adjm_csr, X, weights, bias, apply_relu)
@@ -70,7 +112,7 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
     
     passed = torch.allclose(Y_ref, Y_triton_small_n_switch_loop, atol=atol, rtol=rtol)
     print(f"  triton small n switch loop: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_switch_loop).max().item()}")
-    
+
 
 def bench_fn(label, reps, warmup_reps, fn, *args):
     
@@ -113,31 +155,23 @@ if __name__ == "__main__":
     parser.add_argument("--reps", type=int, default=1000)
     parser.add_argument("--warmup-reps", type=int, default=100)
     parser.add_argument("--dtype", type=str, choices=["fp32", "fp16", "bf16"], default="fp16")
-    parser.add_argument(
-        "--adj-density",
-        type=float,
-        default=0.05,
-        help="Approximate fraction of nonzero entries in the (dense) adjacency before BSR/CSR conversion.",
-    )
-    parser.add_argument(
-        "--bias",
-        action="store_true",
-        help="Use a random (1, N) bias in reference and Triton implementations.",
-    )
-    parser.add_argument(
-        "--apply-relu",
-        action="store_true",
-        help="Apply ReLU after all operations.",
-    )
+    parser.add_argument("--adj-density", type=float, default=0.05, help="Approximate fraction of nonzero entries in the (dense) adjacency before BSR/CSR conversion.",)
+    parser.add_argument("--bias", action="store_true", help="Use a random (1, N) bias in reference and Triton implementations.",)
+    parser.add_argument("--apply-relu", action="store_true", help="Apply ReLU after all operations.",)
+    parser.add_argument("--use-cora", action="store_true", help="Use Cora dataset inputs.")
     args = parser.parse_args()
     dtype = parse_dtype(args.dtype)
     
     torch.manual_seed(0)
 
     # -------------- Make inputs --------------
-    adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_inputs(
-        args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density, use_bias=args.bias
-    )
+    if not args.use_cora:
+        adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_inputs(
+            args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density, use_bias=args.bias
+        )
+    else:
+        print("Using Cora dataset inputs, ignoring M, K1, K2, N, adj-density arguments.")
+        adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_cora_inputs(dtype=dtype, use_bias=args.bias)
 
     # -------------- Validate --------------
     validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, args.apply_relu)
