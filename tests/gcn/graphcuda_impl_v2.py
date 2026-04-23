@@ -67,7 +67,7 @@ def test_pygeometric_gcn(DATA_PATH: str):
     train_acc, val_acc, test_acc = evaluate()
     print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
 
-    epochs = 20
+    epochs = 1000
     total_time = 0
 
     def time_pytorch_function(func, args):
@@ -83,7 +83,7 @@ def test_pygeometric_gcn(DATA_PATH: str):
         return start.elapsed_time(end) / 1000, func_output
 
     # warm-up
-    for _ in range(20):
+    for _ in range(100):
         train()
 
     for epoch in range(1, epochs + 1):
@@ -95,7 +95,7 @@ def test_pygeometric_gcn(DATA_PATH: str):
 
         train_acc, val_acc, test_acc = evaluate()
 
-        if epoch % 1 == 0:
+        if epoch % 100 == 0:
             print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
 
 
