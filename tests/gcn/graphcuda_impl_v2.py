@@ -21,16 +21,25 @@ class GCN(nn.Module):
 
 
 def test_pygeometric_gcn(DATA_PATH: str):
+    dtype = torch.float16
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     dataset = Planetoid(root=DATA_PATH, name='Cora')
     data = dataset[0]
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GCN(dataset.num_node_features, 16, dataset.num_classes).to(device)
     data = data.to(device)
+    data.x = data.x.to(dtype)
+    assert data.x.dim() == 2, "data.x must be 2D"
+    num_node_features = data.x.shape[1]
+    num_node_features_pad = (num_node_features + 15) // 16 * 16
+    if num_node_features_pad > num_node_features:
+        data.x = F.pad(data.x, (0, num_node_features_pad - num_node_features))
+
+    model = GCN(num_node_features_pad, 16, dataset.num_classes).to(device).to(dtype)
 
     print(f"Model is on device: {next(model.parameters()).device}")
-    print(f"Data.x is on device: {data.x.device}")
-    print(f"Data.edge_index is on device: {data.edge_index.device}")
+    print(f"Data.x is on device: {data.x.device}, dtype: {data.x.dtype}")
+    print(f"Data.edge_index is on device: {data.edge_index.device}, dtype: {data.edge_index.dtype}")
 
     # optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
     optimizer = torch.optim.SGD(model.parameters(), lr=1)

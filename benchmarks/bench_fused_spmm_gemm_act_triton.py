@@ -57,7 +57,7 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
 
 
-def make_cora_inputs(dtype: torch.dtype, use_bias: bool = False):
+def make_cora_inputs(N: int, dtype: torch.dtype, use_bias: bool = False):
     device = torch.device("cuda")
     dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data")), name='Cora')
     data = dataset[0]
@@ -84,12 +84,9 @@ def make_cora_inputs(dtype: torch.dtype, use_bias: bool = False):
     M = adjm_dense.shape[0]
     K1 = adjm_dense.shape[1]
     K2 = x.shape[1]
-    N = 16
     
     weights = torch.randn(K2, N, dtype=dtype, device=device)
     bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
-    
-    print(x.shape, weights.shape)
     return adjm_dense, adjm_bsr, adjm_csr, x, weights, bias
 
 
@@ -170,8 +167,8 @@ if __name__ == "__main__":
             args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density, use_bias=args.bias
         )
     else:
-        print("Using Cora dataset inputs, ignoring M, K1, K2, N, adj-density arguments.")
-        adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_cora_inputs(dtype=dtype, use_bias=args.bias)
+        print("Using Cora dataset inputs, ignoring M, K1, K2, adj-density arguments.")
+        adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_cora_inputs(N=args.N, dtype=dtype, use_bias=args.bias)
 
     # -------------- Validate --------------
     validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, args.apply_relu)
