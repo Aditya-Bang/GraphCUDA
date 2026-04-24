@@ -31,10 +31,11 @@ def test_pygeometric_gcn(DATA_PATH: str):
     data = data.to(device)
     data.x = data.x.to(dtype)
     assert data.x.dim() == 2, "data.x must be 2D"
-    num_node_features = data.x.shape[1]
-    num_node_features_pad = (num_node_features + 15) // 16 * 16
-    if num_node_features_pad > num_node_features:
-        data.x = F.pad(data.x, (0, num_node_features_pad - num_node_features))
+    num_node_features_pad = dataset.num_node_features
+    # num_node_features = data.x.shape[1]
+    # num_node_features_pad = (num_node_features + 15) // 16 * 16
+    # if num_node_features_pad > num_node_features:
+    #     data.x = F.pad(data.x, (0, num_node_features_pad - num_node_features))
 
     model = GCN(num_node_features_pad, 16, dataset.num_classes).to(device).to(dtype)
 
@@ -68,30 +69,42 @@ def test_pygeometric_gcn(DATA_PATH: str):
     train_acc, val_acc, test_acc = evaluate()
     print(f"Epoch 000 | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
 
-    epochs = 1000
+    epochs = 10000
     total_time = 0
 
-    def time_pytorch_function(func, args):
+    def time_pytorch_function(func = None, args = None):
         # CUDA is asynchronous, so we need to synchronize
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
 
         start.record()
-        func_output = func(args) if args is not None else func()
+        model.train()
+        optimizer.zero_grad()
+        out = model(data)
+        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        loss.backward()
+        optimizer.step()
+        func_output = loss.item()
         end.record()
+
         torch.cuda.synchronize()
         # Convert milliseconds to seconds
         return start.elapsed_time(end) / 1000, func_output
 
     # warm-up
     for _ in range(100):
-        train()
+        model.train()
+        optimizer.zero_grad()
+        out = model(data)
+        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        loss.backward()
+        optimizer.step()
 
     for epoch in range(1, epochs + 1):
         # epoch_start = time.time()
         # loss = train()
         # epoch_time = time.time() - epoch_start
-        epoch_time, loss = time_pytorch_function(train, None)
+        epoch_time, loss = time_pytorch_function()
         total_time += epoch_time
 
         train_acc, val_acc, test_acc = evaluate()

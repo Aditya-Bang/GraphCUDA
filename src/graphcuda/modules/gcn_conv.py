@@ -6,7 +6,8 @@ from graphcuda.utils.inits import glorot
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
 from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_torch_impl
+# from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_torch_impl
+from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_pyg_edgeindex_torch_impl
 
 
 class _GCNConvFunction(torch.autograd.Function):
@@ -14,14 +15,15 @@ class _GCNConvFunction(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         adjm_bsr_rm: torch.Tensor,
-        adjm_csr: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_weight: torch.Tensor | None,
         X: torch.Tensor,
         weights: torch.Tensor,
         bias: torch.Tensor | None,
         apply_relu: bool,
     ) -> torch.Tensor:
         Y, relu_mask = fused_spmm_gemm_relu_small_n(adjm_bsr_rm, X, weights, bias, apply_relu)
-        ctx.save_for_backward(adjm_csr, X, weights, bias, relu_mask)
+        ctx.save_for_backward(edge_index, edge_weight, X, weights, bias, relu_mask)
         ctx.apply_relu = apply_relu
         return Y
     
@@ -30,10 +32,10 @@ class _GCNConvFunction(torch.autograd.Function):
         ctx: torch.autograd.function.FunctionCtx,
         grad_Y: torch.Tensor,
     ) -> tuple[torch.Tensor | None, ...]:
-        adjm_csr, X, weights, bias, relu_mask = ctx.saved_tensors
+        edge_index, edge_weight, X, weights, bias, relu_mask = ctx.saved_tensors
         apply_relu = ctx.apply_relu
-        dX, dW, dBias = spmm_gemm_relu_backward_torch_impl(grad_Y, adjm_csr, X, weights, bias, relu_mask, apply_relu)
-        return None, None, dX, dW, dBias, None
+        dX, dW, dBias = spmm_gemm_relu_backward_pyg_edgeindex_torch_impl(grad_Y, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu)
+        return None, None, None, dX, dW, dBias, None
 
 
 class GCNConv(torch.nn.Module):
@@ -72,7 +74,8 @@ class GCNConv(torch.nn.Module):
         self.apply_relu = apply_relu
         
         self._cached_adjm_bsr_rm = None
-        self._cached_adjm_csr = None
+        self._cached_edge_index = None
+        self._cached_edge_weight = None
         
         self.weights = torch.nn.Parameter(torch.empty(in_channels, out_channels))
         glorot(self.weights)
@@ -110,15 +113,16 @@ class GCNConv(torch.nn.Module):
             # from edge_index, create adjm_bsr_rm and adjm_csr
             dense_adj = to_dense_adj(edge_index, edge_attr=edge_weight, max_num_nodes=x.size(-2))[0]
             adjm_bsr_rm = to_sparse_bsr_rm(dense_adj)
-            adjm_csr = dense_adj.to_sparse_csr()
 
             if self.cached:
                 self._cached_adjm_bsr_rm = adjm_bsr_rm
-                self._cached_adjm_csr = adjm_csr
+                self._cached_edge_index = edge_index
+                self._cached_edge_weight = edge_weight
         else:
             adjm_bsr_rm = self._cached_adjm_bsr_rm
-            adjm_csr = self._cached_adjm_csr
+            edge_index = self._cached_edge_index
+            edge_weight = self._cached_edge_weight
 
-        out = _GCNConvFunction.apply(adjm_bsr_rm, adjm_csr, x, self.weights, self.bias, self.apply_relu)
+        out = _GCNConvFunction.apply(adjm_bsr_rm, edge_index, edge_weight, x, self.weights, self.bias, self.apply_relu)
 
         return out
