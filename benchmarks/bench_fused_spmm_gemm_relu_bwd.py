@@ -96,10 +96,8 @@ def make_cora_inputs(N: int, dtype: torch.dtype, use_bias: bool = False, apply_r
 
 def validate(grad_output, adjm_dense, adjm_csr, adj_t_csr, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu: bool = True):
     grads_ref = spmm_gemm_relu_backward_torch_impl(grad_output, adjm_dense, X, weights, bias, relu_mask, apply_relu)
-    grads_torch_sparse = spmm_gemm_relu_backward_torch_impl(grad_output, adjm_csr, X, weights, bias, relu_mask, apply_relu)
-    grads_pyg_edgeindex = spmm_gemm_relu_backward_pyg_edgeindex_torch_impl(
-        grad_output, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu
-    )
+    grads_naive_sparse = spmm_gemm_relu_backward_torch_impl(grad_output, adjm_csr, X, weights, bias, relu_mask, apply_relu)
+    grads_pyg_edgeindex = spmm_gemm_relu_backward_pyg_edgeindex_torch_impl(grad_output, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu)
     grads_pyg_csr = spmm_gemm_relu_backward_pyg_csr_impl(grad_output, adj_t_csr, X, weights, bias, relu_mask, apply_relu)
 
     def _print_close(label, ref, actual):
@@ -115,7 +113,7 @@ def validate(grad_output, adjm_dense, adjm_csr, adj_t_csr, edge_index, edge_weig
                 max_abs_error = torch.abs(ref_i - actual_i).max().item()
             print(f"  {label} grad {i}: {'✅' if passed else '❌'}. Max abs error: {max_abs_error}")
 
-    _print_close("sparse torch impl", grads_ref, grads_torch_sparse)
+    _print_close("naive sparse torch impl", grads_ref, grads_naive_sparse)
     _print_close("pyg edgeindex torch impl", grads_ref, grads_pyg_edgeindex)
     _print_close("pyg csr impl", grads_ref, grads_pyg_csr)
 
@@ -183,6 +181,7 @@ if __name__ == "__main__":
     validate(grad_output, adjm_dense, adjm_csr, adj_t_csr, edge_index, edge_weight, X, weights, bias, relu_mask, args.apply_relu)
 
     # -------------- Benchmark --------------
-    bench_fn(f"spmm_gemm_relu_backward_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_torch_impl, dynamic=True), grad_output, adjm_dense, X, weights, bias, relu_mask, args.apply_relu)
+    bench_fn(f"spmm_gemm_relu_backward_naive_dense_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_torch_impl, dynamic=True), grad_output, adjm_dense, X, weights, bias, relu_mask, args.apply_relu)
+    bench_fn(f"spmm_gemm_relu_backward_naive_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_torch_impl, dynamic=True), grad_output, adjm_csr, X, weights, bias, relu_mask, args.apply_relu)
     bench_fn(f"spmm_gemm_relu_backward_pyg_edgeindex_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_pyg_edgeindex_torch_impl, dynamic=True), grad_output, edge_index, edge_weight, X, weights, bias, relu_mask, args.apply_relu)
     bench_fn(f"spmm_gemm_relu_backward_pyg_csr_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_pyg_csr_impl, dynamic=True), grad_output, adj_t_csr, X, weights, bias, relu_mask, args.apply_relu)
