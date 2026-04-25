@@ -35,7 +35,6 @@ def show_profile(profile_name):
     proton_viewer.print_tree(tree, metrics)
 
 
-
 # ------------------------------------------------------------
 # Testing Utilities
 # ------------------------------------------------------------
