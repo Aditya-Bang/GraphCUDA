@@ -132,23 +132,18 @@ Benchmark Summary
 
 ## TODO
 
-        # TODO:
-        # maybe make custom class for my tensor bsr modified, not necessary tho.
-        # block row as prop of this class, function to figure out optimal block row size, must be mult of 16, give 16 for now.
-        # add pytest for gcn conv forward correctly computed compared to pyg, pass in same weights, test with same data, my fixtures for cora dataset.
+- maybe make custom class for my tensor bsr modified, not necessary tho.
+- block row as prop of this class, function to figure out optimal block row size, must be mult of 16, give 16 for now.
+- add pytest for gcn conv forward correctly computed compared to pyg, pass in same weights, test with same data, my fixtures for cora dataset.
+- clean up matmul code
 
+## Development steps
 
-- Custom sparse adjacency CUDA memory implementation
-- More optimized GCN and message-passing kernels
-- Wavelet GNN and other advanced architectures
-- Automated tests and CI
-- Improved documentation
-
-- move gemm test to dev
-- and sparse gemm test
-- clean up cuda folder and remove cpp folder
-- gcn make them pytest, remove tests for matmul in mult
-- kernel fused mult add
+- Write fwd pass for spmm_gemm_relu in Triton.
+- Write fwd pass for spmm_gemm_relu in CUDA for Ampere archs.
+    - Optimize with swizzling/cp.async
+- Look at CUTLASS/CuTe for Ampere optimizations
+- Switch to Mojo/Gluon/CuTeDSL for Hopper+ archs.
 
 ## License
 
