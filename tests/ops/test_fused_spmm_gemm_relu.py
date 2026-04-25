@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from graphcuda.utils.bsr_rm import create_bsr_values_rm
-from graphcuda.ops._fused_spmm_gemm_relu.triton_impl_small_n import fused_spmm_gemm_relu_small_n
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
