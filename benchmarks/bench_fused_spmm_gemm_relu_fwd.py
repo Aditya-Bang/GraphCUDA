@@ -8,9 +8,9 @@ import triton
 import triton.language as tl
 import triton.profiler as proton
 from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
-from graphcuda.ops._fused_spmm_gemm_act.torch_impl import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
+from graphcuda.ops._fused_spmm_gemm_act.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
+from graphcuda.ops._fused_spmm_gemm_act.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
+from graphcuda.ops._fused_spmm_gemm_act.fwd.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
 
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn.conv.gcn_conv import gcn_norm

@@ -5,9 +5,8 @@ from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from graphcuda.utils.inits import glorot
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
-from graphcuda.ops._fused_spmm_gemm_act.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-# from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_pyg_csr_impl
+from graphcuda.ops._fused_spmm_gemm_act.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
+from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
 
 
 class _GCNConvFunction(torch.autograd.Function):
@@ -33,7 +32,7 @@ class _GCNConvFunction(torch.autograd.Function):
     ) -> tuple[torch.Tensor | None, ...]:
         adj_t_csr, X, weights, bias, relu_mask = ctx.saved_tensors
         apply_relu = ctx.apply_relu
-        dX, dW, dBias = spmm_gemm_relu_backward_pyg_csr_impl(grad_Y, adj_t_csr, X, weights, bias, relu_mask, apply_relu)
+        dX, dW, dBias = spmm_gemm_relu_backward_pyg_csr_torch_impl(grad_Y, adj_t_csr, X, weights, bias, relu_mask, apply_relu)
         return None, None, dX, dW, dBias, None
 
 

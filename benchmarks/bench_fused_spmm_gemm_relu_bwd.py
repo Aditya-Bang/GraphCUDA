@@ -7,8 +7,10 @@ import torch.nn.functional as F
 import triton
 import triton.language as tl
 import triton.profiler as proton
-from graphcuda.ops._fused_spmm_gemm_act.torch_impl import fused_spmm_gemm_relu_dense_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.torch_impl_bwd import spmm_gemm_relu_backward_torch_impl, spmm_gemm_relu_backward_pyg_edgeindex_torch_impl, spmm_gemm_relu_backward_pyg_csr_impl
+from graphcuda.ops._fused_spmm_gemm_act.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl
+from graphcuda.ops._fused_spmm_gemm_act.bwd.naive_torch import spmm_gemm_relu_backward_naive_torch_impl
+from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_edgeindex_torch import spmm_gemm_relu_backward_pyg_edgeindex_torch_impl
+from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
 
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
@@ -95,10 +97,10 @@ def make_cora_inputs(N: int, dtype: torch.dtype, use_bias: bool = False, apply_r
 
 
 def validate(grad_output, adjm_dense, adjm_csr, adj_t_csr, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu: bool = True):
-    grads_ref = spmm_gemm_relu_backward_torch_impl(grad_output, adjm_dense, X, weights, bias, relu_mask, apply_relu)
-    grads_naive_sparse = spmm_gemm_relu_backward_torch_impl(grad_output, adjm_csr, X, weights, bias, relu_mask, apply_relu)
+    grads_ref = spmm_gemm_relu_backward_naive_torch_impl(grad_output, adjm_dense, X, weights, bias, relu_mask, apply_relu)
+    grads_naive_sparse = spmm_gemm_relu_backward_naive_torch_impl(grad_output, adjm_csr, X, weights, bias, relu_mask, apply_relu)
     grads_pyg_edgeindex = spmm_gemm_relu_backward_pyg_edgeindex_torch_impl(grad_output, edge_index, edge_weight, X, weights, bias, relu_mask, apply_relu)
-    grads_pyg_csr = spmm_gemm_relu_backward_pyg_csr_impl(grad_output, adj_t_csr, X, weights, bias, relu_mask, apply_relu)
+    grads_pyg_csr = spmm_gemm_relu_backward_pyg_csr_torch_impl(grad_output, adj_t_csr, X, weights, bias, relu_mask, apply_relu)
 
     def _print_close(label, ref, actual):
         atol = 1e-2
@@ -181,7 +183,7 @@ if __name__ == "__main__":
     validate(grad_output, adjm_dense, adjm_csr, adj_t_csr, edge_index, edge_weight, X, weights, bias, relu_mask, args.apply_relu)
 
     # -------------- Benchmark --------------
-    bench_fn(f"spmm_gemm_relu_backward_naive_dense_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_torch_impl, dynamic=True), grad_output, adjm_dense, X, weights, bias, relu_mask, args.apply_relu)
-    bench_fn(f"spmm_gemm_relu_backward_naive_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_torch_impl, dynamic=True), grad_output, adjm_csr, X, weights, bias, relu_mask, args.apply_relu)
+    bench_fn(f"spmm_gemm_relu_backward_naive_dense_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_naive_torch_impl, dynamic=True), grad_output, adjm_dense, X, weights, bias, relu_mask, args.apply_relu)
+    bench_fn(f"spmm_gemm_relu_backward_naive_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_naive_torch_impl, dynamic=True), grad_output, adjm_csr, X, weights, bias, relu_mask, args.apply_relu)
     bench_fn(f"spmm_gemm_relu_backward_pyg_edgeindex_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_pyg_edgeindex_torch_impl, dynamic=True), grad_output, edge_index, edge_weight, X, weights, bias, relu_mask, args.apply_relu)
-    bench_fn(f"spmm_gemm_relu_backward_pyg_csr_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_pyg_csr_impl, dynamic=True), grad_output, adj_t_csr, X, weights, bias, relu_mask, args.apply_relu)
+    bench_fn(f"spmm_gemm_relu_backward_pyg_csr_torch_impl", args.reps, args.warmup_reps, torch.compile(spmm_gemm_relu_backward_pyg_csr_torch_impl, dynamic=True), grad_output, adj_t_csr, X, weights, bias, relu_mask, args.apply_relu)
