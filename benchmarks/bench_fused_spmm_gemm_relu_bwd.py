@@ -7,10 +7,10 @@ import torch.nn.functional as F
 import triton
 import triton.language as tl
 import triton.profiler as proton
-from graphcuda.ops._fused_spmm_gemm_act.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.bwd.naive_torch import spmm_gemm_relu_backward_naive_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_edgeindex_torch import spmm_gemm_relu_backward_pyg_edgeindex_torch_impl
-from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.bwd.naive_torch import spmm_gemm_relu_backward_naive_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.bwd.pyg_edgeindex_torch import spmm_gemm_relu_backward_pyg_edgeindex_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
 
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn.conv.gcn_conv import gcn_norm

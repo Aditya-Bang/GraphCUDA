@@ -5,8 +5,8 @@ from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from graphcuda.utils.inits import glorot
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch_geometric.utils import to_dense_adj
-from graphcuda.ops._fused_spmm_gemm_act.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
-from graphcuda.ops._fused_spmm_gemm_act.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
+from graphcuda.ops._fused_spmm_gemm_relu.bwd.pyg_csr_torch import spmm_gemm_relu_backward_pyg_csr_torch_impl
 
 
 class _GCNConvFunction(torch.autograd.Function):
