@@ -1,27 +1,27 @@
 import time
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.datasets import Planetoid
-from torch_geometric.utils import to_dense_adj, add_self_loops
-from torch_geometric.nn.conv.gcn_conv import gcn_norm
-
-from graphcuda import GCNConv
+from graphcuda.modules.gcn_conv import GCNConv
 
 
-class GCN(torch.nn.Module):
-    def __init__(self, in_features, hidden_features, out_features):
+class GCN(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
         super(GCN, self).__init__()
-        self.conv1 = GCNConv(in_features, hidden_features, apply_relu=True)
-        self.conv2 = GCNConv(hidden_features, out_features, apply_relu=False)
+        self.conv1 = GCNConv(input_dim, hidden_dim, cached=True, add_self_loops=True, bias=True, apply_relu=True)
+        self.conv2 = GCNConv(hidden_dim, output_dim, cached=True, add_self_loops=True, bias=True, apply_relu=False)
 
-    def forward(self, x, adj):
-        x = self.conv1(x, adj)
-        x = self.conv2(x, adj)
-        return torch.log_softmax(x, dim=1)
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, edge_index)
+        return F.log_softmax(x, dim=1)
 
 
-def test_graphcuda_gcn(DATA_PATH: str):
-    dtype = torch.float32
+def test_pygeometric_gcn(DATA_PATH: str):
+    dtype = torch.float16
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     dataset = Planetoid(root=DATA_PATH, name='Cora')
@@ -30,40 +30,25 @@ def test_graphcuda_gcn(DATA_PATH: str):
     data = data.to(device)
     data.x = data.x.to(dtype)
     assert data.x.dim() == 2, "data.x must be 2D"
-    
-    edge_index, edge_weight = gcn_norm(
-        edge_index=data.edge_index,
-        edge_weight=None,
-        num_nodes=data.num_nodes,
-        improved=False,
-        add_self_loops=True,
-        flow="source_to_target",
-        dtype=dtype,
-    )
-    adj = to_dense_adj(edge_index, edge_attr=edge_weight)[0]
+    num_node_features = data.x.shape[1]
+    num_node_features_pad = (num_node_features + 15) // 16 * 16
+    if num_node_features_pad > num_node_features:
+        data.x = F.pad(data.x, (0, num_node_features_pad - num_node_features))
 
-    adj = torch.sparse_coo_tensor(
-        edge_index,
-        edge_weight,
-        (data.num_nodes, data.num_nodes),
-        device=device
-    ).coalesce()
-
-    in_features = dataset.num_node_features
-    hidden_features = 16
-    out_features = dataset.num_classes
-    model = GCN(in_features, hidden_features, out_features).to(device).to(dtype)
-
-    optimizer = torch.optim.SGD(model.parameters(), lr=1)
+    model = GCN(num_node_features_pad, 16, dataset.num_classes).to(device).to(dtype)
 
     print(f"Model is on device: {next(model.parameters()).device}")
     print(f"Data.x is on device: {data.x.device}, dtype: {data.x.dtype}")
     print(f"Data.edge_index is on device: {data.edge_index.device}, dtype: {data.edge_index.dtype}")
 
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1)
+
+
     def train():
         model.train()
         optimizer.zero_grad()
-        out = model(data.x, adj)
+        out = model(data)
         loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
@@ -71,13 +56,12 @@ def test_graphcuda_gcn(DATA_PATH: str):
 
     def evaluate():
         model.eval()
-        with torch.no_grad():
-            out = model(data.x, adj)
-            pred = out.argmax(dim=1)
-            accs = []
-            for mask in [data.train_mask, data.val_mask, data.test_mask]:
-                correct = pred[mask] == data.y[mask]
-                accs.append(int(correct.sum()) / int(mask.sum()))
+        out = model(data)
+        pred = out.argmax(dim=1)
+        accs = []
+        for mask in [data.train_mask, data.val_mask, data.test_mask]:
+            correct = pred[mask] == data.y[mask]
+            accs.append(int(correct.sum()) / int(mask.sum()))
         return accs
 
     train_acc, val_acc, test_acc = evaluate()
@@ -91,16 +75,16 @@ def test_graphcuda_gcn(DATA_PATH: str):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
 
-        
+        start.record()
         model.train()
         optimizer.zero_grad()
-        out = model(data.x, adj)
+        out = model(data)
         loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
-        start.record()
         loss.backward()
         optimizer.step()
         func_output = loss.item()
         end.record()
+        
         torch.cuda.synchronize()
         # Convert milliseconds to seconds
         return start.elapsed_time(end) / 1000, func_output
@@ -109,22 +93,23 @@ def test_graphcuda_gcn(DATA_PATH: str):
     for _ in range(100):
         model.train()
         optimizer.zero_grad()
-        out = model(data.x, adj)
+        out = model(data)
         loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
 
     for epoch in range(1, epochs + 1):
-        # epoch_start_time = time.time()
+        # epoch_start = time.time()
         # loss = train()
-        # epoch_end_time = time.time()
-        # epoch_time = epoch_end_time - epoch_start_time
-        epoch_time, loss = time_pytorch_function(train, None)
+        # epoch_time = time.time() - epoch_start
+        epoch_time, loss = time_pytorch_function()
         total_time += epoch_time
+
         train_acc, val_acc, test_acc = evaluate()
+
         if epoch % 100 == 0:
-            print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "
-              f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+            print(f"Epoch {epoch:03d} | Time: {epoch_time:.4f}s | Loss: {loss:.4f} | "f"Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f} | Test Acc: {test_acc:.4f}")
+
 
     print(f"\nTotal training time for {epochs} epochs: {total_time:.4f} seconds")
     print(f"Average time per epoch (train + test): {total_time / epochs:.6f} seconds")
