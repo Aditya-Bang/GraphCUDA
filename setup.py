@@ -4,21 +4,16 @@ from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
-ROOT = Path(__file__).resolve().parent
-CSRC_DIR = ROOT / "csrc"
-FUSED_SPMM_GEMM_RELU_DIR = CSRC_DIR / "fused_spmm_gemm_relu"
-
-
 setup(
     ext_modules=[
         CUDAExtension(
             name="graphcuda.ops._fused_spmm_gemm_relu.fwd._fused_spmm_gemm_relu_sm80_cuda",
             sources=[
-                str(CSRC_DIR / "bindings.cpp"),
-                str(FUSED_SPMM_GEMM_RELU_DIR / "fused_spmm_gemm_relu_sm80_kernel.cu"),
+                "csrc/bindings.cpp",
+                "csrc/fused_spmm_gemm_relu/fused_spmm_gemm_relu_sm80_kernel.cu",
             ],
             include_dirs=[
-                str(FUSED_SPMM_GEMM_RELU_DIR),
+                "csrc/fused_spmm_gemm_relu",
             ],
             extra_compile_args={
                 "cxx": ["-O3"],

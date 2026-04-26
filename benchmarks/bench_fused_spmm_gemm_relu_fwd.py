@@ -11,6 +11,7 @@ from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 from graphcuda.ops._fused_spmm_gemm_relu.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
 from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n_switch_loop import fused_spmm_gemm_relu_small_n_switch_loop
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.cuda_impl_small_n import fused_spmm_gemm_relu_small_n_cuda
 
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
@@ -94,9 +95,11 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
     Y_ref, _ = fused_spmm_gemm_relu_dense_torch_impl(adjm_dense, X, weights, bias, apply_relu)
     Y_torch_sparse, _ = fused_spmm_gemm_relu_sparse_torch_impl(adjm_csr, X, weights, bias, apply_relu)
     Y_triton_small_n, _ = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias, apply_relu)
-    Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(
-        adjm_bsr, X, weights, bias, apply_relu
-    )
+    Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights, bias, apply_relu)
+    if X.dtype == torch.float16:
+        Y_cuda_small_n, _ = fused_spmm_gemm_relu_small_n_cuda(adjm_bsr, X, weights, bias, apply_relu)
+    else:
+        print("Skipping CUDA impl of fused SpMM-GEMM-ReLU because it only supports float16.")
 
     atol = 1e-2
     rtol = 1e-2
@@ -109,6 +112,10 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
     
     passed = torch.allclose(Y_ref, Y_triton_small_n_switch_loop, atol=atol, rtol=rtol)
     print(f"  triton small n switch loop: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_switch_loop).max().item()}")
+
+    if X.dtype == torch.float16:
+        passed = torch.allclose(Y_ref, Y_cuda_small_n, atol=atol, rtol=rtol)
+        print(f"  cuda small n: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_cuda_small_n).max().item()}")
 
 
 def bench_fn(label, reps, warmup_reps, fn, *args):
@@ -178,3 +185,7 @@ if __name__ == "__main__":
     bench_fn(f"fused_spmm_gemm_relu_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias, args.apply_relu)
     bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias, args.apply_relu)
     bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias, args.apply_relu)
+    if X.dtype == torch.float16:
+        bench_fn(f"fused_spmm_gemm_relu_small_n_cuda", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_cuda, adjm_bsr, X, weights, bias, args.apply_relu)
+    else:
+        print("Skipping CUDA impl of fused SpMM-GEMM-ReLU because it only supports float16.")
