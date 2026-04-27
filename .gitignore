@@ -25,3 +25,6 @@ uv.lock
 
 # Benchmarks
 *.hatchet
+
+# NCU
+*.ncu-rep
