@@ -58,6 +58,21 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
 
 
+def make_edge_case_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, use_bias: bool = False):
+    device = torch.device("cuda")
+    adjm_dense = torch.zeros(M, K1, dtype=dtype, device=device)
+    adjm_dense[0].fill_(1)
+
+    X = torch.randn(K1, K2, dtype=dtype, device=device)
+    weights = torch.randn(K2, N, dtype=dtype, device=device)
+    
+    adjm_bsr = to_sparse_bsr_rm(adjm_dense)
+    adjm_csr = adjm_dense.to_sparse_csr()
+    
+    bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
+    return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
+
+
 def make_cora_inputs(N: int, dtype: torch.dtype, use_bias: bool = False):
     device = torch.device("cuda")
     dataset = Planetoid(root=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data")), name='Cora')
@@ -96,8 +111,12 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
     Y_torch_sparse, _ = fused_spmm_gemm_relu_sparse_torch_impl(adjm_csr, X, weights, bias, apply_relu)
     Y_triton_small_n, _ = fused_spmm_gemm_relu_small_n(adjm_bsr, X, weights, bias, apply_relu)
     Y_triton_small_n_switch_loop, _ = fused_spmm_gemm_relu_small_n_switch_loop(adjm_bsr, X, weights, bias, apply_relu)
-    if X.dtype == torch.float16:
+    compute_capability = torch.cuda.get_device_capability(X.device)
+    is_ampere = compute_capability[0] == 8
+    if X.dtype == torch.float16 and is_ampere:
         Y_cuda_small_n, _ = fused_spmm_gemm_relu_small_n_cuda(adjm_bsr, X, weights, bias, apply_relu)
+    elif X.dtype == torch.float16:
+        print(f"Skipping CUDA impl of fused SpMM-GEMM-ReLU because it requires Ampere (compute capability 8.x), got {compute_capability[0]}.{compute_capability[1]}.")
     else:
         print("Skipping CUDA impl of fused SpMM-GEMM-ReLU because it only supports float16.")
 
@@ -113,7 +132,7 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
     passed = torch.allclose(Y_ref, Y_triton_small_n_switch_loop, atol=atol, rtol=rtol)
     print(f"  triton small n switch loop: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_triton_small_n_switch_loop).max().item()}")
 
-    if X.dtype == torch.float16:
+    if X.dtype == torch.float16 and is_ampere:
         passed = torch.allclose(Y_ref, Y_cuda_small_n, atol=atol, rtol=rtol)
         print(f"  cuda small n: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_cuda_small_n).max().item()}")
 
@@ -163,19 +182,25 @@ if __name__ == "__main__":
     parser.add_argument("--bias", action="store_true", help="Use a random (1, N) bias in reference and Triton implementations.",)
     parser.add_argument("--apply-relu", action="store_true", help="Apply ReLU after all operations.",)
     parser.add_argument("--use-cora", action="store_true", help="Use Cora dataset inputs.")
+    parser.add_argument("--use-edge-case", action="store_true", help="Use edge case inputs.")
     args = parser.parse_args()
     dtype = parse_dtype(args.dtype)
     
     torch.manual_seed(0)
 
     # -------------- Make inputs --------------
-    if not args.use_cora:
+    if not args.use_cora and not args.use_edge_case:
         adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_inputs(
             args.M, args.K1, args.K2, args.N, dtype, adj_density=args.adj_density, use_bias=args.bias
         )
-    else:
+    elif args.use_edge_case and not args.use_cora:
+        print("Using edge case inputs, ignoring adj-density arguments.")
+        adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_edge_case_inputs(M=args.M, K1=args.K1, K2=args.K2, N=args.N, dtype=dtype, use_bias=args.bias)
+    elif args.use_cora and not args.use_edge_case:
         print("Using Cora dataset inputs, ignoring M, K1, K2, adj-density arguments.")
         adjm_dense, adjm_bsr, adjm_csr, X, weights, bias = make_cora_inputs(N=args.N, dtype=dtype, use_bias=args.bias)
+    else:
+        raise ValueError("Only one of --use-cora or --use-edge-case can be True.")
 
     # -------------- Validate --------------
     validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, args.apply_relu)
@@ -185,7 +210,11 @@ if __name__ == "__main__":
     bench_fn(f"fused_spmm_gemm_relu_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias, args.apply_relu)
     bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias, args.apply_relu)
     bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias, args.apply_relu)
-    if X.dtype == torch.float16:
+    compute_capability = torch.cuda.get_device_capability(X.device)
+    is_ampere = compute_capability[0] == 8
+    if X.dtype == torch.float16 and is_ampere:
         bench_fn(f"fused_spmm_gemm_relu_small_n_cuda", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_cuda, adjm_bsr, X, weights, bias, args.apply_relu)
+    elif X.dtype == torch.float16:
+        print(f"Skipping CUDA impl of fused SpMM-GEMM-ReLU because it requires Ampere (compute capability 8.x), got {compute_capability[0]}.{compute_capability[1]}.")
     else:
         print("Skipping CUDA impl of fused SpMM-GEMM-ReLU because it only supports float16.")
