@@ -1,13 +1,14 @@
 # GraphCUDA
 
-GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverages custom CUDA kernels and PyTorch C++/CUDA extensions for fast graph convolution and matrix operations. On benchmark datasets like **Cora**, GraphCUDA achieves **~37% faster training time** compared to PyTorch-native implementations. It is designed for research and benchmarking of GNNs on both sparse and dense graphs, with a focus on extensibility and speed.
+GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverages custom CUDA and Triton kernels and PyTorch C++/CUDA extensions for fast graph convolution and matrix operations. On benchmark datasets like **Cora**, GraphCUDA achieves **~10% faster training time** compared to PyTorch-native implementations. It is designed for research and benchmarking of GNNs on both sparse and dense graphs, with a focus on extensibility and speed.
+
+![Fused SpMM-GEMM-ReLU forward runtime](plots/fused_spmm_gemm_relu_fwd.png)
 
 ## Features
 
-- Custom CUDA kernels for GCN layers and matrix multiplication
+- Custom CUDA and Triton kernels for GCN layers and matrix multiplication
 - PyTorch extension with pybind11 for seamless Python integration
 - Example implementations and benchmarks against PyTorch and torch-geometric
-- Cross-platform: Windows and Linux; tested on Turing and Ampere architectures
 
 ## Installation
 
@@ -46,89 +47,58 @@ After installation, you can import and use the CUDA-accelerated GCN layers and m
 import torch
 from graphcuda import GCNConv
 
-# Example: create a GCN model
-class GCN(torch.nn.Module):
-    def __init__(self, in_features, hidden_features, out_features):
-        super(GCN, self).__init__()
-        self.conv1 = GCNConv(in_features, hidden_features, apply_relu=True)
-        self.conv2 = GCNConv(hidden_features, out_features, apply_relu=False)
+class GCN(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
+        super().__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim, cached=True, add_self_loops=True, bias=True, apply_relu=True)
+        self.conv2 = GCNConv(hidden_dim, output_dim, cached=True, add_self_loops=True, bias=True, apply_relu=False)
 
-    def forward(self, x, adj):
-        x = self.conv1(x, adj)
-        x = self.conv2(x, adj)
-        return torch.log_softmax(x, dim=1)
+    def forward(self, data):
+        x = self.conv1(data.x, data.edge_index)
+        x = F.dropout(x, training=self.training)
+        x = self.conv2(x, data.edge_index)
+        return F.log_softmax(x, dim=1)
 
 model = GCN(in_features, hidden_features, out_features)
 output = model(x, adj)
 ```
 
-See `tests/gcn/graphcuda_impl.py` and `tests/gcn/pytorch_impl.py` for full training and benchmarking scripts.
+See `benchmarks/bench_gcn.py` for full training and benchmarking scripts.
 
 ## Project Structure
 
 ```
+benchmarks/              # GCN and fused kernel benchmark scripts
+csrc/                    # C++ bindings and custom CUDA kernels
+plots/                   # Generated benchmark plots
 src/graphcuda/
-    __init__.py          # Handles DLLs on Windows, imports all CUDA/C++ functions
-    python/              # Python GCNConv and utility code
-    cpp/                 # C++ GCNConv layer implementations
-    cuda/                # CUDA kernels and pybind11 bindings
-        pybind.cu        # Exposes CUDA functions to Python
-tests/
-    gcn/                 # GCN training/benchmark scripts
-    matmul/              # Matrix multiplication tests
+    modules/             # User-facing neural network layers
+    ops/                 # Fused SpMM-GEMM-ReLU implementations
+    utils/               # Sparse formats and initialization helpers
+tests/                   # Unit tests and validation scripts
+legacy/                  # Older prototype kernels and experiments
+CMakeLists.txt
 setup.py
 pyproject.toml
 ```
 
-## Development
+## Benchmarking
 
-- All CUDA kernels are in `src/graphcuda/cuda/`
-- Pybind11 bindings are in `pybind.cu`
-- Python API is auto-populated from the extension module
-- On Windows, DLL search paths are set automatically in `__init__.py`
-- To add new CUDA functions, expose them in `pybind.cu` and rebuild
+Running `python benchmarks/bench_gcn.py`
 
-
-### Running Tests
-
-```bash
-pytest tests/gcn/pytorch_impl.py
-pytest tests/gcn/graphcuda_impl.py
+Sample Output (on RTX A6000):
 ```
+Cora: nodes=2708, edges=10556, features=1433, classes=7, dtype=fp16
+Epochs: warmup=1000, measured=10000, hidden_dim=16
 
+Benchmarking pygeometric_gcn
+pygeometric_gcn: total=14.147529s, avg_epoch=1.415ms, loss=0.0017, train_acc=1.0000, val_acc=0.7600, test_acc=0.7920
 
-Sample Output (PyTorch):
+Benchmarking graphcuda_gcn
+graphcuda_gcn: total=13.108321s, avg_epoch=1.311ms, loss=0.0004, train_acc=1.0000, val_acc=0.7740, test_acc=0.7870
+
+GraphCUDA speedup vs PyG: 1.08x
 ```
-Model is on device: cuda:0
-Data.x is on device: cuda:0
-Data.edge_index is on device: cuda:0
-Epoch 000 | Train Acc: 0.1214 | Val Acc: 0.1200 | Test Acc: 0.1300
-Epoch 001 | Time: 0.1416s | Loss: 1.9478 | Train Acc: 0.2643 | Val Acc: 0.2080 | Test Acc: 0.2190
-...
-Epoch 020 | Time: 0.0137s | Loss: 1.0150 | Train Acc: 0.9071 | Val Acc: 0.7540 | Test Acc: 0.7840
-
-Total training + testing time for 20 epochs: 0.4058 seconds
-Average time per epoch (train + test): 0.020290 seconds
-```
-
-Sample Output (GraphCuda):
-```
-Model is on device: cuda:0
-Data.x is on device: cuda:0
-Data.edge_index is on device: cuda:0
-Epoch 000 | Train Acc: 0.1429 | Val Acc: 0.1460 | Test Acc: 0.1470
-Epoch 001 | Time: 0.0922s | Loss: 1.9448 | Train Acc: 0.3500 | Val Acc: 0.2440 | Test Acc: 0.2570
-...
-Epoch 020 | Time: 0.0091s | Loss: 0.9753 | Train Acc: 0.9214 | Val Acc: 0.7600 | Test Acc: 0.7960
-
-Total training + testing time for 20 epochs: 0.2559 seconds
-Average time per epoch (train + test): 0.012794 seconds
-```
-
-Benchmark Summary
-- PyTorch baseline: ~0.0203s per epoch
-- GraphCUDA optimized: ~0.0128s per epoch
-- Speedup: **~1.6×** faster on the tested setup
 
 ## TODO
 
