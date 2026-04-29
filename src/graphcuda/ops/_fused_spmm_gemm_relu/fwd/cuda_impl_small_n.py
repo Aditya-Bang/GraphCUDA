@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import torch
 
-from . import _fused_spmm_gemm_relu_sm80_cuda as _ext
-
+try:
+    from . import _fused_spmm_gemm_relu_sm80_cuda as _ext
+except ImportError:
+    print("Failed to import _fused_spmm_gemm_relu_sm80_cuda extension. Make sure it is compiled correctly.")
 
 def _ensure_i32_indices(adjm_bsr_rm: torch.Tensor) -> None:
     if not hasattr(adjm_bsr_rm, "crow_indices_i32"):
