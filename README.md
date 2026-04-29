@@ -92,12 +92,12 @@ Cora: nodes=2708, edges=10556, features=1433, classes=7, dtype=fp16
 Epochs: warmup=1000, measured=10000, hidden_dim=16
 
 Benchmarking pygeometric_gcn
-pygeometric_gcn: total=14.147529s, avg_epoch=1.415ms, loss=0.0017, train_acc=1.0000, val_acc=0.7600, test_acc=0.7920
+pygeometric_gcn: total=13.243882s, avg_epoch=1.324ms, loss=0.0018, train_acc=1.0000, val_acc=0.7600, test_acc=0.7920
 
 Benchmarking graphcuda_gcn
-graphcuda_gcn: total=13.108321s, avg_epoch=1.311ms, loss=0.0004, train_acc=1.0000, val_acc=0.7740, test_acc=0.7870
+graphcuda_gcn: total=12.076949s, avg_epoch=1.208ms, loss=0.0004, train_acc=1.0000, val_acc=0.7740, test_acc=0.7860
 
-GraphCUDA speedup vs PyG: 1.08x
+GraphCUDA speedup vs PyG: 1.10x
 ```
 
 ## TODO
