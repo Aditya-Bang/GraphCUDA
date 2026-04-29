@@ -5,12 +5,9 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import torch
 
-from bench_fused_spmm_gemm_relu_fwd import (
-    fused_spmm_gemm_relu_dense_torch_impl,
-    fused_spmm_gemm_relu_small_n,
-    fused_spmm_gemm_relu_sparse_torch_impl,
-    make_inputs,
-)
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
+from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
+from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 
 
 PLOTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plots"))
@@ -42,6 +39,22 @@ def parse_densities(densities: str) -> list[float]:
         if density <= 0.0 or density > 1.0:
             raise ValueError("Adjacency densities must be in the range (0, 1]")
     return sorted(parsed, reverse=True)
+
+
+def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_density: float = 0.05, use_bias: bool = False):
+    device = torch.device("cuda")
+    mask = torch.rand((M, K1), device=device) < adj_density
+    adjm_dense = torch.randn(M, K1, dtype=dtype, device=device)
+    adjm_dense.mul_(mask.to(dtype))
+    
+    X = torch.randn(K1, K2, dtype=dtype, device=device)
+    weights = torch.randn(K2, N, dtype=dtype, device=device)
+    
+    adjm_bsr = to_sparse_bsr_rm(adjm_dense)
+    adjm_csr = adjm_dense.to_sparse_csr()
+    
+    bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
+    return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
 
 
 def time_cuda_fn(label: str, fn, reps: int, warmup_reps: int, *args) -> float:

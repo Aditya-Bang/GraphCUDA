@@ -3,6 +3,7 @@ from pathlib import Path
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
+ROOT_DIR = Path(__file__).parent
 
 setup(
     ext_modules=[
@@ -13,7 +14,7 @@ setup(
                 "csrc/fused_spmm_gemm_relu/fused_spmm_gemm_relu_sm80_kernel.cu",
             ],
             include_dirs=[
-                "csrc/fused_spmm_gemm_relu",
+                str(ROOT_DIR / "csrc" / "fused_spmm_gemm_relu"),
             ],
             extra_compile_args={
                 "cxx": ["-O3"],
