@@ -86,7 +86,7 @@ pyproject.toml
 
 Running `python benchmarks/bench_gcn.py`
 
-Sample Output (on RTX A6000):
+Sample Output (on A100-40GB):
 ```
 Cora: nodes=2708, edges=10556, features=1433, classes=7, dtype=fp16
 Epochs: warmup=1000, measured=10000, hidden_dim=16
