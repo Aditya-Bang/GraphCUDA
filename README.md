@@ -2,7 +2,7 @@
 
 GraphCUDA is a high-performance Graph Neural Network (GNN) library that leverages custom CUDA and Triton kernels and PyTorch C++/CUDA extensions for fast graph convolution and matrix operations. On benchmark datasets like **Cora**, GraphCUDA achieves **~10% faster training time** compared to PyTorch-native implementations. It is designed for research and benchmarking of GNNs on both sparse and dense graphs, with a focus on extensibility and speed.
 
-![Fused SpMM-GEMM-ReLU forward runtime](plots/fused_spmm_gemm_relu_fwd_A6000.png)
+![Fused SpMM-GEMM-ReLU forward runtime](plots/fused_spmm_gemm_relu_fwd_A100.png)
 
 ## Features
 

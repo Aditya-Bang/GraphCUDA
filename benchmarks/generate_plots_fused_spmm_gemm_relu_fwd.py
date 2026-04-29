@@ -1,9 +1,13 @@
 import argparse
+from contextlib import contextmanager
+import json
 import os
+import re
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import torch
+import triton.profiler as proton
 
 from graphcuda.ops._fused_spmm_gemm_relu.fwd.naive_torch import fused_spmm_gemm_relu_dense_torch_impl, fused_spmm_gemm_relu_sparse_torch_impl
 from graphcuda.ops._fused_spmm_gemm_relu.fwd.triton_impl_small_n import fused_spmm_gemm_relu_small_n
@@ -13,9 +17,19 @@ from graphcuda.utils.bsr_rm import to_sparse_bsr_rm
 PLOTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "plots"))
 
 
+@contextmanager
+def proton_context(session: int = 0):
+    proton.activate(session)
+    try:
+        yield
+    finally:
+        proton.deactivate(session)
+
+
 @dataclass
-class DensityResult:
+class BenchmarkResult:
     adj_density: float
+    size: int
     dense_torch_ms: float
     sparse_torch_ms: float
     triton_small_n_ms: float
@@ -41,6 +55,22 @@ def parse_densities(densities: str) -> list[float]:
     return sorted(parsed, reverse=True)
 
 
+def parse_size_sweep(size_sweep: str) -> list[int]:
+    parts = [int(part.strip()) for part in size_sweep.replace(":", ",").split(",") if part.strip()]
+    if len(parts) != 3:
+        raise ValueError("--size-sweep must be formatted as start,end,step, for example 1024,2048,256")
+
+    start, end, step = parts
+    if start <= 0 or end <= 0:
+        raise ValueError("--size-sweep start and end must be positive")
+    if step <= 0:
+        raise ValueError("--size-sweep step must be positive")
+    if start > end:
+        raise ValueError("--size-sweep start must be less than or equal to end")
+
+    return list(range(start, end + 1, step))
+
+
 def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_density: float = 0.05, use_bias: bool = False):
     device = torch.device("cuda")
     mask = torch.rand((M, K1), device=device) < adj_density
@@ -55,6 +85,56 @@ def make_inputs(M: int, K1: int, K2: int, N: int, dtype: torch.dtype, adj_densit
     
     bias = torch.randn(1, N, dtype=dtype, device=device) if use_bias else None
     return adjm_dense, adjm_bsr, adjm_csr, X, weights, bias
+
+
+def _profile_name(label: str) -> str:
+    safe_label = re.sub(r"[^a-zA-Z0-9_.-]+", "_", label).strip("_")
+    return f"generate_plots_{os.getpid()}_{safe_label}"
+
+
+def _device_time_ns(node: dict) -> int:
+    metrics = node.get("metrics", {})
+    if metrics.get("device_type") == "CUDA":
+        return int(metrics.get("time (ns)", 0))
+    return sum(_device_time_ns(child) for child in node.get("children", []))
+
+
+def _read_proton_cuda_time_ms(profile_name: str, reps: int) -> float:
+    profile_path = f"{profile_name}.hatchet"
+    with open(profile_path) as f:
+        profile = json.load(f)
+
+    total_ns = _device_time_ns(profile[0])
+    return total_ns / 1_000_000 / reps
+
+
+def time_proton_fn(label: str, fn, reps: int, warmup_reps: int, *args) -> float:
+    profile_name = _profile_name(label)
+    profile_path = f"{profile_name}.hatchet"
+    if os.path.exists(profile_path):
+        os.remove(profile_path)
+
+    session = proton.start(profile_name, hook="triton")
+    proton.deactivate(session)
+
+    try:
+        for _ in range(warmup_reps):
+            fn(*args)
+        torch.cuda.synchronize()
+
+        with proton_context(session):
+            for _ in range(reps):
+                fn(*args)
+        torch.cuda.synchronize()
+
+        proton.finalize(session)
+        avg_ms = _read_proton_cuda_time_ms(profile_name, reps)
+    finally:
+        if os.path.exists(profile_path):
+            os.remove(profile_path)
+
+    print(f"  {label}: {avg_ms:.4f} ms")
+    return avg_ms
 
 
 def time_cuda_fn(label: str, fn, reps: int, warmup_reps: int, *args) -> float:
@@ -89,8 +169,9 @@ def benchmark_density(
     apply_relu: bool,
     compile_torch_dense: bool,
     compile_torch_sparse: bool,
-) -> DensityResult:
-    print(f"\nBenchmarking adj_density={adj_density:g}")
+    timing_backend: str,
+) -> BenchmarkResult:
+    print(f"\nBenchmarking M={m}, K1={k1}, K2={k2}, N={n}, adj_density={adj_density:g}")
     adjm_dense, adjm_bsr, adjm_csr, x, weights, bias = make_inputs(
         m,
         k1,
@@ -109,7 +190,9 @@ def benchmark_density(
     if compile_torch_sparse:
         sparse_torch_fn = torch.compile(sparse_torch_fn, dynamic=True)
 
-    dense_torch_ms = time_cuda_fn(
+    time_fn = time_proton_fn if timing_backend == "proton" else time_cuda_fn
+
+    dense_torch_ms = time_fn(
         "pytorch dense spmm-gemm-relu",
         dense_torch_fn,
         reps,
@@ -120,7 +203,7 @@ def benchmark_density(
         bias,
         apply_relu,
     )
-    sparse_torch_ms = time_cuda_fn(
+    sparse_torch_ms = time_fn(
         "pytorch sparse spmm-gemm-relu",
         sparse_torch_fn,
         reps,
@@ -131,7 +214,7 @@ def benchmark_density(
         bias,
         apply_relu,
     )
-    triton_small_n_ms = time_cuda_fn(
+    triton_small_n_ms = time_fn(
         "triton fused_spmm_gemm_relu_small_n",
         fused_spmm_gemm_relu_small_n,
         reps,
@@ -143,8 +226,9 @@ def benchmark_density(
         apply_relu,
     )
 
-    return DensityResult(
+    return BenchmarkResult(
         adj_density=adj_density,
+        size=m,
         dense_torch_ms=dense_torch_ms,
         sparse_torch_ms=sparse_torch_ms,
         triton_small_n_ms=triton_small_n_ms,
@@ -152,7 +236,7 @@ def benchmark_density(
 
 
 def plot_results(
-    results: list[DensityResult],
+    results: list[BenchmarkResult],
     gpu_name: str,
     m: int,
     k1: int,
@@ -162,42 +246,53 @@ def plot_results(
     reps: int,
     warmup_reps: int,
     output_path: str,
+    sweep_mode: str,
+    timing_backend: str,
 ):
-    densities = [result.adj_density for result in results]
+    if sweep_mode == "size":
+        x_values = [result.size for result in results]
+        x_label = "M = K1 = K2"
+        metadata_shape = f"M=K1=K2 sweep, N={n}, dtype={dtype}\nadj_density={results[0].adj_density:g}"
+    else:
+        x_values = [result.adj_density for result in results]
+        x_label = "Adjacency Density"
+        metadata_shape = f"M={m}, K1={k1}, K2={k2}, N={n}, dtype={dtype}"
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
     ax.plot(
-        densities,
+        x_values,
         [result.dense_torch_ms for result in results],
         marker="o",
         linewidth=2,
         label="PyTorch dense",
     )
     ax.plot(
-        densities,
+        x_values,
         [result.sparse_torch_ms for result in results],
         marker="s",
         linewidth=2,
         label="PyTorch sparse",
     )
     ax.plot(
-        densities,
+        x_values,
         [result.triton_small_n_ms for result in results],
         marker="^",
         linewidth=2,
         label="Triton fused small-n",
     )
-    ax.set_xlabel("Adjacency Density")
+    ax.set_xlabel(x_label)
     ax.set_ylabel("Average Time (ms)")
     ax.set_title("Fused SpMM-GEMM-ReLU Forward Runtime")
-    ax.invert_xaxis()
+    ax.set_ylim(bottom=0)
+    if sweep_mode == "density":
+        ax.invert_xaxis()
     ax.grid(True, alpha=0.3)
     ax.legend()
 
     metadata = (
         f"GPU: {gpu_name}\n"
-        f"M={m}, K1={k1}, K2={k2}, N={n}, dtype={dtype}\n"
-        f"reps={reps}, warmup_reps={warmup_reps}"
+        f"{metadata_shape}\n"
+        f"reps={reps}, warmup_reps={warmup_reps}, timing={timing_backend}"
     )
     ax.text(
         0.02,
@@ -216,7 +311,7 @@ def plot_results(
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Sweep adjacency densities and plot dense PyTorch, sparse PyTorch, "
+            "Sweep adjacency densities or equal M/K1/K2 sizes and plot dense PyTorch, sparse PyTorch, "
             "and Triton fused_spmm_gemm_relu_small_n forward runtimes."
         )
     )
@@ -226,19 +321,37 @@ def main():
     parser.add_argument("--N", type=int, default=16)
     parser.add_argument("--dtype", type=str, choices=["fp32", "fp16", "bf16"], default="fp16")
     parser.add_argument("--adj-densities", type=str, default="0.01,0.005,0.002,0.001")
+    parser.add_argument(
+        "--size-sweep",
+        type=str,
+        default=None,
+        help=(
+            "Optional inclusive size sweep for M=K1=K2 formatted as start,end,step "
+            "or start:end:step, for example 1024,2048,256. Uses the first --adj-densities value."
+        ),
+    )
     parser.add_argument("--reps", type=int, default=1000)
     parser.add_argument("--warmup-reps", type=int, default=100)
+    parser.add_argument(
+        "--timing-backend",
+        type=str,
+        choices=["proton", "cuda-event"],
+        default="proton",
+        help="Timing backend. Proton reports summed CUDA kernel device time and matches bench_fused_spmm_gemm_relu_fwd.py.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--bias", action="store_true")
     parser.add_argument("--apply-relu", action="store_true")
     parser.add_argument(
         "--compile-torch-dense",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Use torch.compile for the PyTorch dense implementation, matching bench_fused_spmm_gemm_relu_fwd.py.",
     )
     parser.add_argument(
         "--compile-torch-sparse",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Use torch.compile for the PyTorch sparse implementation, matching bench_fused_spmm_gemm_relu_fwd.py.",
     )
     parser.add_argument("--output", type=str, default=None, help="Optional output PNG path.")
@@ -253,34 +366,66 @@ def main():
 
     dtype = parse_dtype(args.dtype)
     densities = parse_densities(args.adj_densities)
+    sizes = parse_size_sweep(args.size_sweep) if args.size_sweep is not None else None
     gpu_name = torch.cuda.get_device_name(torch.cuda.current_device())
 
     torch.manual_seed(args.seed)
-    results = [
-        benchmark_density(
-            adj_density=density,
-            m=args.M,
-            k1=args.K1,
-            k2=args.K2,
-            n=args.N,
-            dtype=dtype,
-            reps=args.reps,
-            warmup_reps=args.warmup_reps,
-            use_bias=args.bias,
-            apply_relu=args.apply_relu,
-            compile_torch_dense=args.compile_torch_dense,
-            compile_torch_sparse=args.compile_torch_sparse,
-        )
-        for density in densities
-    ]
+    if sizes is None:
+        sweep_mode = "density"
+        results = [
+            benchmark_density(
+                adj_density=density,
+                m=args.M,
+                k1=args.K1,
+                k2=args.K2,
+                n=args.N,
+                dtype=dtype,
+                reps=args.reps,
+                warmup_reps=args.warmup_reps,
+                use_bias=args.bias,
+                apply_relu=args.apply_relu,
+                compile_torch_dense=args.compile_torch_dense,
+                compile_torch_sparse=args.compile_torch_sparse,
+                timing_backend=args.timing_backend,
+            )
+            for density in densities
+        ]
+    else:
+        sweep_mode = "size"
+        adj_density = densities[0]
+        results = [
+            benchmark_density(
+                adj_density=adj_density,
+                m=size,
+                k1=size,
+                k2=size,
+                n=args.N,
+                dtype=dtype,
+                reps=args.reps,
+                warmup_reps=args.warmup_reps,
+                use_bias=args.bias,
+                apply_relu=args.apply_relu,
+                compile_torch_dense=args.compile_torch_dense,
+                compile_torch_sparse=args.compile_torch_sparse,
+                timing_backend=args.timing_backend,
+            )
+            for size in sizes
+        ]
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
     output_path = args.output
     if output_path is None:
-        output_name = (
-            "fused_spmm_gemm_relu_fwd_time_"
-            f"M{args.M}_K1{args.K1}_K2{args.K2}_N{args.N}_{args.dtype}.png"
-        )
+        if sweep_mode == "size":
+            output_name = (
+                "fused_spmm_gemm_relu_fwd_time_"
+                f"size{sizes[0]}-{sizes[-1]}_step{sizes[1] - sizes[0] if len(sizes) > 1 else 0}_"
+                f"N{args.N}_{args.dtype}.png"
+            )
+        else:
+            output_name = (
+                "fused_spmm_gemm_relu_fwd_time_"
+                f"M{args.M}_K1{args.K1}_K2{args.K2}_N{args.N}_{args.dtype}.png"
+            )
         output_path = os.path.join(PLOTS_DIR, output_name)
     else:
         output_path = os.path.abspath(output_path)
@@ -297,12 +442,18 @@ def main():
         reps=args.reps,
         warmup_reps=args.warmup_reps,
         output_path=output_path,
+        sweep_mode=sweep_mode,
+        timing_backend=args.timing_backend,
     )
 
     print("\nSummary")
     for result in results:
+        if sweep_mode == "size":
+            print_prefix = f"  size={result.size}, density={result.adj_density:g}: "
+        else:
+            print_prefix = f"  density={result.adj_density:g}: "
         print(
-            f"  density={result.adj_density:g}: "
+            f"{print_prefix}"
             f"dense={result.dense_torch_ms:.4f}ms, "
             f"sparse={result.sparse_torch_ms:.4f}ms, "
             f"triton={result.triton_small_n_ms:.4f}ms"
