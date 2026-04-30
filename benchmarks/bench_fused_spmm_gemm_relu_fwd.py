@@ -137,23 +137,31 @@ def validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, apply_relu: bool 
         print(f"  cuda small n: {'✅' if passed else '❌'}. Max abs error: {torch.abs(Y_ref - Y_cuda_small_n).max().item()}")
 
 
-def bench_fn(label, reps, warmup_reps, fn, *args):
+def bench_fn(disable_proton, label, reps, warmup_reps, fn, *args):
     
-    session = proton.start(label, hook="triton")
-    proton.deactivate(session)
+    if not disable_proton:
+        session = proton.start(label, hook="triton")
+        proton.deactivate(session)
 
     print(f"Benchmarking {label}")
     for _ in range(warmup_reps):
         fn(*args)
     torch.cuda.synchronize()
 
-    with proton_context(session):
+    if not disable_proton:
+        with proton_context(session):
+            for _ in range(reps):
+                fn(*args)
+    else:
         for _ in range(reps):
             fn(*args)
     torch.cuda.synchronize()
 
-    proton.finalize(session)
-    show_profile(label)
+    if not disable_proton:
+        proton.finalize(session)
+        show_profile(label)
+
+    print(f"{label}: profiling done")
 
 
 # ------------------------------------------------------------
@@ -183,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply-relu", action="store_true", help="Apply ReLU after all operations.",)
     parser.add_argument("--use-cora", action="store_true", help="Use Cora dataset inputs.")
     parser.add_argument("--use-edge-case", action="store_true", help="Use edge case inputs.")
+    parser.add_argument("--disable-proton", action="store_true", help="Disable Proton profiling.")
     args = parser.parse_args()
     dtype = parse_dtype(args.dtype)
     
@@ -206,14 +215,14 @@ if __name__ == "__main__":
     validate(adjm_dense, adjm_bsr, adjm_csr, X, weights, bias, args.apply_relu)
 
     # -------------- Benchmark --------------
-    bench_fn(f"fused_spmm_gemm_relu_dense_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_dense_torch_impl, dynamic=True), adjm_dense, X, weights, bias, args.apply_relu)
-    bench_fn(f"fused_spmm_gemm_relu_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias, args.apply_relu)
-    bench_fn(f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias, args.apply_relu)
-    bench_fn(f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias, args.apply_relu)
+    bench_fn(args.disable_proton, f"fused_spmm_gemm_relu_dense_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_dense_torch_impl, dynamic=True), adjm_dense, X, weights, bias, args.apply_relu)
+    bench_fn(args.disable_proton, f"fused_spmm_gemm_relu_sparse_torch_impl", args.reps, args.warmup_reps, torch.compile(fused_spmm_gemm_relu_sparse_torch_impl, dynamic=True), adjm_csr, X, weights, bias, args.apply_relu)
+    bench_fn(args.disable_proton, f"fused_spmm_gemm_relu_small_n", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n, adjm_bsr, X, weights, bias, args.apply_relu)
+    bench_fn(args.disable_proton, f"fused_spmm_gemm_relu_small_n_switch_loop", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_switch_loop, adjm_bsr, X, weights, bias, args.apply_relu)
     compute_capability = torch.cuda.get_device_capability(X.device)
     is_ampere = compute_capability[0] == 8
     if X.dtype == torch.float16 and is_ampere:
-        bench_fn(f"fused_spmm_gemm_relu_small_n_cuda", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_cuda, adjm_bsr, X, weights, bias, args.apply_relu)
+        bench_fn(args.disable_proton, f"fused_spmm_gemm_relu_small_n_cuda", args.reps, args.warmup_reps, fused_spmm_gemm_relu_small_n_cuda, adjm_bsr, X, weights, bias, args.apply_relu)
     elif X.dtype == torch.float16:
         print(f"Skipping CUDA impl of fused SpMM-GEMM-ReLU because it requires Ampere (compute capability 8.x), got {compute_capability[0]}.{compute_capability[1]}.")
     else:
